@@ -64,9 +64,12 @@ class Msg91Service {
       }
     } catch (error) {
       console.error('MSG91 Send OTP Error:', error.response?.data || error.message);
+      console.error('Error Code:', error.code);
+      console.error('Error Details:', JSON.stringify(error, null, 2));
       
       // Handle specific error cases
       if (error.response) {
+        // MSG91 API returned an error response
         const errorData = error.response.data;
         return {
           success: false,
@@ -74,9 +77,24 @@ class Msg91Service {
         };
       }
       
+      // Network level errors (timeout, connection refused, etc.)
+      if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
+        return {
+          success: false,
+          message: 'Request timeout. MSG91 service is taking too long to respond. Please try again.'
+        };
+      }
+      
+      if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
+        return {
+          success: false,
+          message: 'Cannot connect to MSG91 service. Please check your internet connection.'
+        };
+      }
+      
       return {
         success: false,
-        message: 'Network error. Please check your connection and try again.'
+        message: `Network error: ${error.message || 'Please check your connection and try again.'}`
       };
     }
   }
