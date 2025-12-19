@@ -1,0 +1,298 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Razorpay Payment Test</title>
+    <script src="https://checkout.razorpay.com/v1/checkout.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 500;
+        }
+        input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        button {
+            width: 100%;
+            padding: 14px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+        button:active {
+            transform: translateY(0);
+        }
+        button:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            display: none;
+        }
+        .result.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .result.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .result.info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .log {
+            margin-top: 20px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            max-height: 200px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+        }
+        .log-entry {
+            margin-bottom: 5px;
+            padding: 5px;
+            border-left: 3px solid #667eea;
+            padding-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🧪 Razorpay Payment Test</h1>
+        
+        <div class="form-group">
+            <label for="amount">Amount (₹)</label>
+            <input type="number" id="amount" value="1" min="1" step="0.01">
+        </div>
+
+        <div class="form-group">
+            <label for="keyId">Razorpay Key ID</label>
+            <input type="text" id="keyId" placeholder="rzp_test_..." value="rzp_test_RqEBl9COpBTyyz">
+        </div>
+
+        <button id="payButton" onclick="initiatePayment()">Pay Now</button>
+
+        <div id="result" class="result"></div>
+
+        <div class="log" id="log" style="display: none;">
+            <strong>Payment Log:</strong>
+            <div id="logContent"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE_URL = 'http://localhost:3000/api/payments';
+
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const logContent = document.getElementById('logContent');
+            const timestamp = new Date().toLocaleTimeString();
+            
+            logDiv.style.display = 'block';
+            logContent.innerHTML += `<div class="log-entry">[${timestamp}] ${message}</div>`;
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function showResult(message, type) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.className = `result ${type}`;
+            resultDiv.textContent = message;
+            resultDiv.style.display = 'block';
+        }
+
+        async function initiatePayment() {
+            const amount = parseFloat(document.getElementById('amount').value);
+            const keyId = document.getElementById('keyId').value;
+            const payButton = document.getElementById('payButton');
+
+            if (!amount || amount <= 0) {
+                showResult('Please enter a valid amount', 'error');
+                return;
+            }
+
+            if (!keyId) {
+                showResult('Please enter Razorpay Key ID', 'error');
+                return;
+            }
+
+            payButton.disabled = true;
+            payButton.textContent = 'Creating Order...';
+            log('Starting payment process...');
+
+            try {
+                // Step 1: Create order
+                log('Creating order with amount: ₹' + amount);
+                const orderResponse = await fetch(`${API_BASE_URL}/create-order`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        amount: amount,
+                        currency: 'INR',
+                        receipt: `test_${Date.now()}`
+                    })
+                });
+
+                const orderData = await orderResponse.json();
+                
+                if (!orderData.success) {
+                    throw new Error(orderData.message || 'Failed to create order');
+                }
+
+                log(`Order created: ${orderData.order.id}`);
+                log(`Order amount: ₹${orderData.order.amount / 100}`);
+
+                // Step 2: Initialize Razorpay Checkout
+                const options = {
+                    key: keyId,
+                    amount: orderData.order.amount, // Amount in paise
+                    currency: orderData.order.currency,
+                    name: 'Test Payment',
+                    description: 'Test Payment Description',
+                    order_id: orderData.order.id,
+                    handler: async function(response) {
+                        log('Payment successful!');
+                        log(`Payment ID: ${response.razorpay_payment_id}`);
+                        log(`Order ID: ${response.razorpay_order_id}`);
+                        log(`Signature: ${response.razorpay_signature}`);
+
+                        // Step 3: Verify signature
+                        log('Verifying payment signature...');
+                        try {
+                            const verifyResponse = await fetch(`${API_BASE_URL}/verify-signature`, {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json'
+                                },
+                                body: JSON.stringify({
+                                    orderId: response.razorpay_order_id,
+                                    paymentId: response.razorpay_payment_id,
+                                    signature: response.razorpay_signature
+                                })
+                            });
+
+                            const verifyData = await verifyResponse.json();
+                            
+                            if (verifyData.verified) {
+                                log('✅ Signature verified successfully!');
+                                showResult('Payment successful and verified!', 'success');
+                            } else {
+                                log('❌ Signature verification failed');
+                                showResult('Payment completed but verification failed', 'error');
+                            }
+                        } catch (error) {
+                            log(`Error verifying signature: ${error.message}`);
+                            showResult('Payment completed but verification error occurred', 'error');
+                        }
+
+                        payButton.disabled = false;
+                        payButton.textContent = 'Pay Now';
+                    },
+                    prefill: {
+                        name: 'Test User',
+                        email: 'test@example.com',
+                        contact: '9999999999'
+                    },
+                    theme: {
+                        color: '#667eea'
+                    },
+                    modal: {
+                        ondismiss: function() {
+                            log('Payment cancelled by user');
+                            payButton.disabled = false;
+                            payButton.textContent = 'Pay Now';
+                        }
+                    }
+                };
+
+                const razorpay = new Razorpay(options);
+                razorpay.open();
+                log('Razorpay checkout opened');
+
+            } catch (error) {
+                log(`Error: ${error.message}`, 'error');
+                showResult(`Error: ${error.message}`, 'error');
+                payButton.disabled = false;
+                payButton.textContent = 'Pay Now';
+            }
+        }
+
+        // Test server connection on load
+        window.addEventListener('load', async () => {
+            try {
+                const response = await fetch('http://localhost:3000/health');
+                const data = await response.json();
+                if (data.status === 'ok') {
+                    log('✅ Server is running and connected');
+                }
+            } catch (error) {
+                log('⚠️  Server not reachable. Make sure server is running on port 3000', 'error');
+                showResult('Server not reachable. Please start the server first!', 'error');
+            }
+        });
+    </script>
+</body>
+</html>
+
