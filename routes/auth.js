@@ -61,7 +61,9 @@ router.post('/send-otp', otpLimiter, async (req, res) => {
     const sessionId = await otpService.storeOtp(cleanNumber, otp);
 
     // Send OTP via MSG91
+    console.log(`Sending OTP to ${cleanNumber}`);
     const sendResult = await msg91Service.sendOtp(cleanNumber, otp);
+    console.log('MSG91 Send Result:', JSON.stringify(sendResult, null, 2));
 
     if (sendResult.success) {
       res.json({

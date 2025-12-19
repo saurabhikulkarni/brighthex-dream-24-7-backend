@@ -36,12 +36,17 @@ class Msg91Service {
         otp_expiry: 10 // OTP expires in 10 minutes
       };
 
+      console.log('MSG91 Request URL:', url);
+      console.log('MSG91 Request Payload:', JSON.stringify(payload, null, 2));
+      
       const response = await axios.post(url, payload, {
         headers: {
           'Content-Type': 'application/json'
         },
         timeout: 10000 // 10 seconds timeout
       });
+
+      console.log('MSG91 Response:', JSON.stringify(response.data, null, 2));
 
       // MSG91 response format
       if (response.data.type === 'success' || response.data.message === 'OTP sent successfully') {
@@ -51,6 +56,7 @@ class Msg91Service {
           requestId: response.data.request_id
         };
       } else {
+        console.error('MSG91 returned non-success response:', response.data);
         return {
           success: false,
           message: response.data.message || 'Failed to send OTP'
