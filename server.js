@@ -79,11 +79,29 @@ app.use((req, res) => {
   });
 });
 
+// Debug middleware - log all requests in debug mode
+if (process.env.DEBUG || process.env.NODE_ENV === 'development') {
+  app.use((req, res, next) => {
+    const timestamp = new Date().toISOString();
+    console.log(`[${timestamp}] ${req.method} ${req.path}`);
+    if (req.body && Object.keys(req.body).length > 0) {
+      console.log('Request Body:', JSON.stringify(req.body, null, 2));
+    }
+    if (req.query && Object.keys(req.query).length > 0) {
+      console.log('Query Params:', JSON.stringify(req.query, null, 2));
+    }
+    next();
+  });
+}
+
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 Server running on port ${PORT}`);
   console.log(`📡 Environment: ${process.env.NODE_ENV || 'development'}`);
   console.log(`🔗 Health check: http://localhost:${PORT}/health`);
+  if (process.env.DEBUG) {
+    console.log(`🐛 Debug mode enabled: ${process.env.DEBUG}`);
+  }
 });
 
 module.exports = app;

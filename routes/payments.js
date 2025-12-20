@@ -22,6 +22,11 @@ router.post('/create-order', async (req, res) => {
     // userId is required for Hygraph integration
     // Check if Hygraph is configured (only endpoint is required, token is optional)
     const isHygraphConfigured = process.env.HYGRAPH_ENDPOINT;
+    console.log('🔍 Hygraph Configuration Check:');
+    console.log('  HYGRAPH_ENDPOINT:', process.env.HYGRAPH_ENDPOINT || 'NOT SET');
+    console.log('  isHygraphConfigured:', isHygraphConfigured ? 'YES' : 'NO');
+    console.log('  userId provided:', userId ? 'YES' : 'NO');
+    
     if (isHygraphConfigured && !userId) {
       return res.status(400).json({
         success: false,
@@ -49,7 +54,7 @@ router.post('/create-order', async (req, res) => {
           razorpayOrderId: order.id,
           amount: amountInPaise, // Amount in paise (service converts to rupees)
           currency: currency.toUpperCase(),
-          paymentStatus: 'PENDING',
+          paymentStatus: 'pending', // OrderStatus enum: lowercase
           method: null
         });
         console.log('✅ Payment created in Hygraph:', hygraphPayment.id);
@@ -67,7 +72,7 @@ router.post('/create-order', async (req, res) => {
           userId,
           orderNumber,
           totalAmount: amountInPaise, // Amount in paise (service converts to rupees)
-          orderStatus: 'PENDING',
+          orderStatus: 'pending', // OrderStatus enum: lowercase
           shippingAddressId: shippingAddressId || null
         });
         console.log('✅ Order created in Hygraph:', hygraphOrder.id);
@@ -172,12 +177,12 @@ router.post('/verify-signature', async (req, res) => {
           console.log('✅ Payment status updated in Hygraph:', hygraphPaymentStatus);
 
           // Update order status if payment is completed
-          if (hygraphPaymentStatus === 'COMPLETED') {
+          if (hygraphPaymentStatus === 'confirmed') {
             try {
               const payment = await hygraphService.findPaymentByRazorpayOrderId(orderId);
               if (payment && payment.orderId) {
-                await hygraphService.updateOrderStatus(payment.orderId, 'CONFIRMED');
-                console.log('✅ Order status updated to CONFIRMED in Hygraph');
+                await hygraphService.updateOrderStatus(payment.orderId, 'confirmed');
+                console.log('✅ Order status updated to confirmed in Hygraph');
               }
             } catch (orderUpdateError) {
               console.error('⚠️  Failed to update order status:', orderUpdateError.message);
@@ -257,17 +262,17 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         if (isHygraphConfigured) {
           try {
             // Update payment status in Hygraph
-            await hygraphService.updatePaymentStatus(razorpayOrderId, 'COMPLETED', {
+            await hygraphService.updatePaymentStatus(razorpayOrderId, 'confirmed', {
               razorpayPaymentId: razorpayPaymentId,
               method: paymentEntity.method || null
             });
-            console.log('✅ Payment status updated to COMPLETED in Hygraph');
+            console.log('✅ Payment status updated to confirmed in Hygraph');
 
             // Update order status
             const payment = await hygraphService.findPaymentByRazorpayOrderId(razorpayOrderId);
             if (payment && payment.orderId) {
-              await hygraphService.updateOrderStatus(payment.orderId, 'CONFIRMED');
-              console.log('✅ Order status updated to CONFIRMED in Hygraph');
+              await hygraphService.updateOrderStatus(payment.orderId, 'confirmed');
+              console.log('✅ Order status updated to confirmed in Hygraph');
             }
           } catch (hygraphError) {
             console.error('⚠️  Failed to update Hygraph in webhook:', hygraphError.message);
@@ -287,11 +292,11 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         const isHygraphConfigured = process.env.HYGRAPH_ENDPOINT && process.env.HYGRAPH_TOKEN;
         if (isHygraphConfigured) {
           try {
-            await hygraphService.updatePaymentStatus(razorpayOrderId, 'FAILED', {
+            await hygraphService.updatePaymentStatus(razorpayOrderId, 'cancelled', {
               razorpayPaymentId: razorpayPaymentId,
               method: paymentEntity.method || null
             });
-            console.log('✅ Payment status updated to FAILED in Hygraph');
+            console.log('✅ Payment status updated to cancelled in Hygraph');
           } catch (hygraphError) {
             console.error('⚠️  Failed to update Hygraph in webhook:', hygraphError.message);
           }
@@ -311,8 +316,8 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
           try {
             const payment = await hygraphService.findPaymentByRazorpayOrderId(razorpayOrderId);
             if (payment && payment.orderId) {
-              await hygraphService.updateOrderStatus(payment.orderId, 'CONFIRMED');
-              console.log('✅ Order status updated to CONFIRMED in Hygraph');
+              await hygraphService.updateOrderStatus(payment.orderId, 'confirmed');
+              console.log('✅ Order status updated to confirmed in Hygraph');
             }
           } catch (hygraphError) {
             console.error('⚠️  Failed to update order in Hygraph:', hygraphError.message);
@@ -383,12 +388,12 @@ router.get('/verify-payment', async (req, res) => {
         console.log('✅ Payment status updated in Hygraph:', hygraphPaymentStatus);
 
         // Update order status if payment is completed
-        if (hygraphPaymentStatus === 'COMPLETED') {
+        if (hygraphPaymentStatus === 'confirmed') {
           try {
             const hygraphPayment = await hygraphService.findPaymentByRazorpayOrderId(order_id);
             if (hygraphPayment && hygraphPayment.orderId) {
-              await hygraphService.updateOrderStatus(hygraphPayment.orderId, 'CONFIRMED');
-              console.log('✅ Order status updated to CONFIRMED in Hygraph');
+              await hygraphService.updateOrderStatus(hygraphPayment.orderId, 'confirmed');
+              console.log('✅ Order status updated to confirmed in Hygraph');
             }
           } catch (orderUpdateError) {
             console.error('⚠️  Failed to update order status:', orderUpdateError.message);

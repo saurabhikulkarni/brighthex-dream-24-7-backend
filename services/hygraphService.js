@@ -6,7 +6,10 @@ class HygraphService {
     this.token = process.env.HYGRAPH_TOKEN; // Optional - not needed for public endpoints
     
     if (!this.endpoint) {
-      console.warn('⚠️  Hygraph endpoint not configured');
+      console.warn('⚠️  Hygraph endpoint not configured - set HYGRAPH_ENDPOINT in .env');
+      console.warn('   Hygraph operations will be skipped');
+    } else {
+      console.log('✅ Hygraph endpoint configured:', this.endpoint);
     }
   }
 
@@ -50,7 +53,17 @@ class HygraphService {
 
       return response.data.data;
     } catch (error) {
-      console.error('Hygraph Service Error:', error.response?.data || error.message);
+      console.error('❌ Hygraph Service Error Details:');
+      console.error('  Error Message:', error.message);
+      if (error.response) {
+        console.error('  Status:', error.response.status);
+        console.error('  Status Text:', error.response.statusText);
+        console.error('  Response Data:', JSON.stringify(error.response.data, null, 2));
+      }
+      if (error.request) {
+        console.error('  Request URL:', this.endpoint);
+        console.error('  No response received from Hygraph');
+      }
       throw error;
     }
   }
@@ -67,7 +80,7 @@ class HygraphService {
       razorpayPaymentId = null,
       amount, // Amount in paise (will convert to rupees)
       currency = 'INR',
-      paymentStatus = 'PENDING',
+      paymentStatus = 'pending', // OrderStatus enum: lowercase
       method = null,
       orderId = null
     } = paymentData;
@@ -82,7 +95,7 @@ class HygraphService {
         $razorpayPaymentId: String,
         $amount: Float!,
         $currency: String!,
-        $paymentStatus: PaymentStatus!,
+        $paymentStatus: OrderStatus!,
         $method: String,
         $orderId: ID
       ) {
@@ -168,7 +181,7 @@ class HygraphService {
     const mutation = `
       mutation UpdatePayment(
         $paymentId: ID!,
-        $paymentStatus: PaymentStatus!,
+        $paymentStatus: OrderStatus!,
         $razorpayPaymentId: String,
         $method: String
       ) {
@@ -206,32 +219,33 @@ class HygraphService {
   }
 
   /**
-   * Map Razorpay payment status to Hygraph PaymentStatus enum
+   * Map Razorpay payment status to Hygraph OrderStatus enum (used for paymentStatus field)
+   * Note: Hygraph Payment model uses OrderStatus enum for paymentStatus field
    * @param {string} razorpayStatus - Razorpay status (e.g., 'captured', 'authorized', 'failed')
-   * @returns {string} Hygraph PaymentStatus enum value
+   * @returns {string} Hygraph OrderStatus enum value (lowercase)
    */
   mapRazorpayStatusToHygraph(razorpayStatus) {
     const statusMap = {
-      'captured': 'COMPLETED',
-      'authorized': 'PROCESSING',
-      'failed': 'FAILED',
-      'refunded': 'REFUNDED',
-      'pending': 'PENDING',
-      'cancelled': 'CANCELLED'
+      'captured': 'confirmed',      // Payment captured = confirmed
+      'authorized': 'processing',   // Payment authorized = processing
+      'failed': 'cancelled',        // Payment failed = cancelled
+      'refunded': 'refunded',       // Payment refunded = refunded
+      'pending': 'pending',         // Payment pending = pending
+      'cancelled': 'cancelled'      // Payment cancelled = cancelled
     };
     
-    return statusMap[razorpayStatus?.toLowerCase()] || 'PENDING';
+    return statusMap[razorpayStatus?.toLowerCase()] || 'pending';
   }
 
   /**
    * Map Razorpay order status to Hygraph OrderStatus enum
    * @param {string} razorpayStatus - Razorpay order status
-   * @returns {string} Hygraph OrderStatus enum value
+   * @returns {string} Hygraph OrderStatus enum value (lowercase)
    */
   mapRazorpayOrderStatusToHygraph(razorpayStatus) {
     // Razorpay orders typically don't have status, but we can infer from payment
     // This is mainly for when payment is successful
-    return 'CONFIRMED'; // When payment is captured, order is confirmed
+    return 'confirmed'; // When payment is captured, order is confirmed (lowercase)
   }
 
   /**
@@ -270,7 +284,7 @@ class HygraphService {
       userId,
       orderNumber, // Must be unique
       totalAmount, // Amount in paise (will convert to rupees)
-      orderStatus = 'PENDING',
+      orderStatus = 'pending', // OrderStatus enum: lowercase
       shippingAddressId = null,
       razorpayOrderId = null // Store Razorpay order ID in notes or separate field
     } = orderData;
@@ -278,38 +292,73 @@ class HygraphService {
     // Convert amount from paise to rupees (Float)
     const amountInRupees = totalAmount / 100;
 
-    const mutation = `
-      mutation CreateOrder(
-        $userId: ID!,
-        $orderNumber: String!,
-        $totalAmount: Float!,
-        $orderStatus: OrderStatus!,
-        $shippingAddressId: ID
-      ) {
-        createOrder(
-          data: {
-            userDetail: {connect: {id: $userId}}
-            orderNumber: $orderNumber
-            totalAmount: $totalAmount
-            orderStatus: $orderStatus
-            shippingAddress: {connect: {id: $shippingAddressId}}
-          }
+    // Build mutation - conditionally include address field if provided
+    // Field name is "address" not "shippingAddress" per Hygraph schema
+    let mutation;
+    let variables;
+    
+    if (shippingAddressId) {
+      mutation = `
+        mutation CreateOrder(
+          $userId: ID!,
+          $orderNumber: String!,
+          $totalAmount: Float!,
+          $orderStatus: OrderStatus!,
+          $shippingAddressId: ID
         ) {
-          id
-          orderNumber
-          totalAmount
-          orderStatus
+          createOrder(
+            data: {
+              userDetail: {connect: {id: $userId}}
+              orderNumber: $orderNumber
+              totalAmount: $totalAmount
+              orderStatus: $orderStatus
+              address: {connect: {id: $shippingAddressId}}
+            }
+          ) {
+            id
+            orderNumber
+            totalAmount
+            orderStatus
+          }
         }
-      }
-    `;
-
-    const variables = {
-      userId,
-      orderNumber,
-      totalAmount: amountInRupees,
-      orderStatus,
-      shippingAddressId
-    };
+      `;
+      variables = {
+        userId,
+        orderNumber,
+        totalAmount: amountInRupees,
+        orderStatus,
+        shippingAddressId
+      };
+    } else {
+      mutation = `
+        mutation CreateOrder(
+          $userId: ID!,
+          $orderNumber: String!,
+          $totalAmount: Float!,
+          $orderStatus: OrderStatus!
+        ) {
+          createOrder(
+            data: {
+              userDetail: {connect: {id: $userId}}
+              orderNumber: $orderNumber
+              totalAmount: $totalAmount
+              orderStatus: $orderStatus
+            }
+          ) {
+            id
+            orderNumber
+            totalAmount
+            orderStatus
+          }
+        }
+      `;
+      variables = {
+        userId,
+        orderNumber,
+        totalAmount: amountInRupees,
+        orderStatus
+      };
+    }
 
     const result = await this.execute(mutation, variables);
     const orderId = result.createOrder.id;

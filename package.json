@@ -5,21 +5,29 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "dev": "nodemon server.js"
+    "dev": "nodemon server.js",
+    "debug": "cross-env NODE_ENV=development DEBUG=* node server.js",
+    "debug:win": "cross-env NODE_ENV=development DEBUG=* node server.js"
   },
-  "keywords": ["express", "msg91", "razorpay", "otp"],
+  "keywords": [
+    "express",
+    "msg91",
+    "razorpay",
+    "otp"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "express": "^4.18.2",
-    "cors": "^2.8.5",
-    "dotenv": "^16.3.1",
     "axios": "^1.6.0",
-    "razorpay": "^2.9.2",
+    "cors": "^2.8.5",
     "crypto": "^1.0.1",
-    "express-rate-limit": "^7.1.3"
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "express-rate-limit": "^7.1.3",
+    "razorpay": "^2.9.2"
   },
   "devDependencies": {
+    "cross-env": "^10.1.0",
     "nodemon": "^3.0.1"
   }
 }
