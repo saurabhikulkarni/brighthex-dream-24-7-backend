@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const razorpayService = require('../services/razorpayService');
+const hygraphService = require('../services/hygraphService');
 
 /**
  * POST /api/payments/create-order
@@ -8,13 +9,23 @@ const razorpayService = require('../services/razorpayService');
  */
 router.post('/create-order', async (req, res) => {
   try {
-    const { amount, currency = 'INR', receipt, notes } = req.body;
+    const { amount, currency = 'INR', receipt, notes, userId, orderNumber, shippingAddressId } = req.body;
 
     // Validation
     if (!amount || amount <= 0) {
       return res.status(400).json({
         success: false,
         message: 'Valid amount is required'
+      });
+    }
+
+    // userId is required for Hygraph integration
+    // Check if Hygraph is configured (only endpoint is required, token is optional)
+    const isHygraphConfigured = process.env.HYGRAPH_ENDPOINT;
+    if (isHygraphConfigured && !userId) {
+      return res.status(400).json({
+        success: false,
+        message: 'userId is required for Hygraph integration'
       });
     }
 
@@ -29,8 +40,51 @@ router.post('/create-order', async (req, res) => {
       notes: notes || {}
     });
 
-    // TODO: Create order in Hygraph with orderStatus = 'created' (not 'status')
-    // Use field name: orderStatus
+    // Create payment record in Hygraph (payment is created before order is paid)
+    let hygraphPayment = null;
+    if (userId && isHygraphConfigured) {
+      try {
+        hygraphPayment = await hygraphService.createPayment({
+          userId,
+          razorpayOrderId: order.id,
+          amount: amountInPaise, // Amount in paise (service converts to rupees)
+          currency: currency.toUpperCase(),
+          paymentStatus: 'PENDING',
+          method: null
+        });
+        console.log('✅ Payment created in Hygraph:', hygraphPayment.id);
+      } catch (hygraphError) {
+        console.error('⚠️  Failed to create payment in Hygraph:', hygraphError.message);
+        // Continue even if Hygraph fails - Razorpay order is already created
+      }
+    }
+
+    // Create order in Hygraph if orderNumber and userId are provided
+    let hygraphOrder = null;
+    if (userId && orderNumber && isHygraphConfigured) {
+      try {
+        hygraphOrder = await hygraphService.createOrder({
+          userId,
+          orderNumber,
+          totalAmount: amountInPaise, // Amount in paise (service converts to rupees)
+          orderStatus: 'PENDING',
+          shippingAddressId: shippingAddressId || null
+        });
+        console.log('✅ Order created in Hygraph:', hygraphOrder.id);
+
+        // Link payment to order if both were created
+        if (hygraphPayment && hygraphOrder) {
+          try {
+            await hygraphService.linkPaymentToOrder(hygraphPayment.id, hygraphOrder.id);
+            console.log('✅ Payment linked to order in Hygraph');
+          } catch (linkError) {
+            console.error('⚠️  Failed to link payment to order:', linkError.message);
+          }
+        }
+      } catch (hygraphError) {
+        console.error('⚠️  Failed to create order in Hygraph:', hygraphError.message);
+      }
+    }
 
     if (order) {
       // Build redirect URL for payment verification
@@ -102,9 +156,38 @@ router.post('/verify-signature', async (req, res) => {
     const isValid = razorpayService.verifySignature(orderId, paymentId, signature);
 
     if (isValid) {
-      // TODO: Update Hygraph after successful verification:
-      // - Update Payment model: paymentStatus = 'captured' (not 'status')
-      // - Update Order model: orderStatus = 'paid' (not 'status')
+      // Update Hygraph after successful verification (if configured)
+      const isHygraphConfigured = process.env.HYGRAPH_ENDPOINT && process.env.HYGRAPH_TOKEN;
+      if (isHygraphConfigured) {
+        try {
+          // Get payment details from Razorpay to get status
+          const razorpayPayment = await razorpayService.getPayment(paymentId);
+          const hygraphPaymentStatus = hygraphService.mapRazorpayStatusToHygraph(razorpayPayment.status);
+
+          // Update payment status in Hygraph
+          await hygraphService.updatePaymentStatus(orderId, hygraphPaymentStatus, {
+            razorpayPaymentId: paymentId,
+            method: razorpayPayment.method || null
+          });
+          console.log('✅ Payment status updated in Hygraph:', hygraphPaymentStatus);
+
+          // Update order status if payment is completed
+          if (hygraphPaymentStatus === 'COMPLETED') {
+            try {
+              const payment = await hygraphService.findPaymentByRazorpayOrderId(orderId);
+              if (payment && payment.orderId) {
+                await hygraphService.updateOrderStatus(payment.orderId, 'CONFIRMED');
+                console.log('✅ Order status updated to CONFIRMED in Hygraph');
+              }
+            } catch (orderUpdateError) {
+              console.error('⚠️  Failed to update order status:', orderUpdateError.message);
+            }
+          }
+        } catch (hygraphError) {
+          console.error('⚠️  Failed to update Hygraph:', hygraphError.message);
+          // Continue even if Hygraph update fails - signature verification succeeded
+        }
+      }
       
       res.json({
         success: true,
@@ -161,27 +244,82 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 
     // Handle different webhook events
     switch (event.event) {
-      case 'payment.captured':
+      case 'payment.captured': {
         // Payment successful
-        console.log('Payment captured:', event.payload.payment.entity.id);
-        // TODO: Update payment status in Hygraph
-        // Use field name: paymentStatus (not status)
-        // Example: updatePaymentStatus(paymentId, 'captured')
+        const paymentEntity = event.payload.payment.entity;
+        const razorpayOrderId = paymentEntity.order_id;
+        const razorpayPaymentId = paymentEntity.id;
+        
+        console.log('Payment captured:', razorpayPaymentId, 'for order:', razorpayOrderId);
+        
+        // Update Hygraph if configured
+        const isHygraphConfigured = process.env.HYGRAPH_ENDPOINT && process.env.HYGRAPH_TOKEN;
+        if (isHygraphConfigured) {
+          try {
+            // Update payment status in Hygraph
+            await hygraphService.updatePaymentStatus(razorpayOrderId, 'COMPLETED', {
+              razorpayPaymentId: razorpayPaymentId,
+              method: paymentEntity.method || null
+            });
+            console.log('✅ Payment status updated to COMPLETED in Hygraph');
+
+            // Update order status
+            const payment = await hygraphService.findPaymentByRazorpayOrderId(razorpayOrderId);
+            if (payment && payment.orderId) {
+              await hygraphService.updateOrderStatus(payment.orderId, 'CONFIRMED');
+              console.log('✅ Order status updated to CONFIRMED in Hygraph');
+            }
+          } catch (hygraphError) {
+            console.error('⚠️  Failed to update Hygraph in webhook:', hygraphError.message);
+          }
+        }
         break;
-      case 'payment.failed':
+      }
+      case 'payment.failed': {
         // Payment failed
-        console.log('Payment failed:', event.payload.payment.entity.id);
-        // TODO: Update payment status in Hygraph
-        // Use field name: paymentStatus (not status)
-        // Example: updatePaymentStatus(paymentId, 'failed')
+        const paymentEntity = event.payload.payment.entity;
+        const razorpayOrderId = paymentEntity.order_id;
+        const razorpayPaymentId = paymentEntity.id;
+        
+        console.log('Payment failed:', razorpayPaymentId, 'for order:', razorpayOrderId);
+        
+        // Update Hygraph if configured
+        const isHygraphConfigured = process.env.HYGRAPH_ENDPOINT && process.env.HYGRAPH_TOKEN;
+        if (isHygraphConfigured) {
+          try {
+            await hygraphService.updatePaymentStatus(razorpayOrderId, 'FAILED', {
+              razorpayPaymentId: razorpayPaymentId,
+              method: paymentEntity.method || null
+            });
+            console.log('✅ Payment status updated to FAILED in Hygraph');
+          } catch (hygraphError) {
+            console.error('⚠️  Failed to update Hygraph in webhook:', hygraphError.message);
+          }
+        }
         break;
-      case 'order.paid':
+      }
+      case 'order.paid': {
         // Order paid
-        console.log('Order paid:', event.payload.order.entity.id);
-        // TODO: Update order status in Hygraph
-        // Use field name: orderStatus (not status)
-        // Example: updateOrderStatus(orderId, 'paid')
+        const orderEntity = event.payload.order.entity;
+        const razorpayOrderId = orderEntity.id;
+        
+        console.log('Order paid:', razorpayOrderId);
+        
+        // Update Hygraph if configured
+        const isHygraphConfigured = process.env.HYGRAPH_ENDPOINT && process.env.HYGRAPH_TOKEN;
+        if (isHygraphConfigured) {
+          try {
+            const payment = await hygraphService.findPaymentByRazorpayOrderId(razorpayOrderId);
+            if (payment && payment.orderId) {
+              await hygraphService.updateOrderStatus(payment.orderId, 'CONFIRMED');
+              console.log('✅ Order status updated to CONFIRMED in Hygraph');
+            }
+          } catch (hygraphError) {
+            console.error('⚠️  Failed to update order in Hygraph:', hygraphError.message);
+          }
+        }
         break;
+      }
       default:
         console.log('Unhandled webhook event:', event.event);
     }
@@ -231,9 +369,36 @@ router.get('/verify-payment', async (req, res) => {
       );
     }
 
-    // TODO: If payment is successful, update Hygraph:
-    // - Update Payment model: paymentStatus = 'captured' (not 'status')
-    // - Update Order model: orderStatus = 'paid' (not 'status')
+    // Update Hygraph if payment is successful and Hygraph is configured
+    const isHygraphConfigured = process.env.HYGRAPH_ENDPOINT && process.env.HYGRAPH_TOKEN;
+    if (isSuccess && order_id && isHygraphConfigured) {
+      try {
+        const hygraphPaymentStatus = hygraphService.mapRazorpayStatusToHygraph(payment.status);
+        
+        // Update payment status in Hygraph
+        await hygraphService.updatePaymentStatus(order_id, hygraphPaymentStatus, {
+          razorpayPaymentId: payment_id,
+          method: payment.method || null
+        });
+        console.log('✅ Payment status updated in Hygraph:', hygraphPaymentStatus);
+
+        // Update order status if payment is completed
+        if (hygraphPaymentStatus === 'COMPLETED') {
+          try {
+            const hygraphPayment = await hygraphService.findPaymentByRazorpayOrderId(order_id);
+            if (hygraphPayment && hygraphPayment.orderId) {
+              await hygraphService.updateOrderStatus(hygraphPayment.orderId, 'CONFIRMED');
+              console.log('✅ Order status updated to CONFIRMED in Hygraph');
+            }
+          } catch (orderUpdateError) {
+            console.error('⚠️  Failed to update order status:', orderUpdateError.message);
+          }
+        }
+      } catch (hygraphError) {
+        console.error('⚠️  Failed to update Hygraph:', hygraphError.message);
+        // Continue - payment verification succeeded even if Hygraph update fails
+      }
+    }
     
     // Build redirect URL with payment details
     const params = new URLSearchParams({
