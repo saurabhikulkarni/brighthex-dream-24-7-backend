@@ -88,52 +88,100 @@ class HygraphService {
     // Convert amount from paise to rupees (Float)
     const amountInRupees = amount / 100;
 
-    const createMutation = `
-      mutation CreatePayment(
-        $userId: ID!,
-        $razorpayOrderId: String!,
-        $razorpayPaymentId: String,
-        $amount: Float!,
-        $currency: String!,
-        $paymentStatus: OrderStatus!,
-        $method: String,
-        $orderId: ID
-      ) {
-        createPayment(
-          data: {
-            userDetail: {connect: {id: $userId}}
-            razorpayOrderId: $razorpayOrderId
-            razorpayPaymentId: $razorpayPaymentId
-            amount: $amount
-            currency: $currency
-            paymentStatus: $paymentStatus
-            method: $method
-            order: {connect: {id: $orderId}}
-          }
+    // Build mutation - conditionally include order field if orderId is provided
+    let mutation;
+    let variables;
+    
+    if (orderId) {
+      // Include order connection
+      mutation = `
+        mutation CreatePayment(
+          $userId: ID!,
+          $razorpayOrderId: String!,
+          $razorpayPaymentId: String,
+          $amount: Float!,
+          $currency: String!,
+          $paymentStatus: OrderStatus!,
+          $method: String,
+          $orderId: ID!
         ) {
-          id
-          razorpayOrderId
-          razorpayPaymentId
-          amount
-          currency
-          paymentStatus
-          method
+          createPayment(
+            data: {
+              userDetail: {connect: {id: $userId}}
+              razorpayOrderId: $razorpayOrderId
+              razorpayPaymentId: $razorpayPaymentId
+              amount: $amount
+              currency: $currency
+              paymentStatus: $paymentStatus
+              method: $method
+              order: {connect: {id: $orderId}}
+            }
+          ) {
+            id
+            razorpayOrderId
+            razorpayPaymentId
+            amount
+            currency
+            paymentStatus
+            method
+          }
         }
-      }
-    `;
+      `;
+      variables = {
+        userId,
+        razorpayOrderId,
+        razorpayPaymentId,
+        amount: amountInRupees,
+        currency,
+        paymentStatus,
+        method,
+        orderId
+      };
+    } else {
+      // Omit order connection (for wallet top-ups)
+      mutation = `
+        mutation CreatePayment(
+          $userId: ID!,
+          $razorpayOrderId: String!,
+          $razorpayPaymentId: String,
+          $amount: Float!,
+          $currency: String!,
+          $paymentStatus: OrderStatus!,
+          $method: String
+        ) {
+          createPayment(
+            data: {
+              userDetail: {connect: {id: $userId}}
+              razorpayOrderId: $razorpayOrderId
+              razorpayPaymentId: $razorpayPaymentId
+              amount: $amount
+              currency: $currency
+              paymentStatus: $paymentStatus
+              method: $method
+            }
+          ) {
+            id
+            razorpayOrderId
+            razorpayPaymentId
+            amount
+            currency
+            paymentStatus
+            method
+          }
+        }
+      `;
+      variables = {
+        userId,
+        razorpayOrderId,
+        razorpayPaymentId,
+        amount: amountInRupees,
+        currency,
+        paymentStatus,
+        method
+      };
+    }
 
-    const variables = {
-      userId,
-      razorpayOrderId,
-      razorpayPaymentId,
-      amount: amountInRupees,
-      currency,
-      paymentStatus,
-      method,
-      orderId
-    };
-
-    const result = await this.execute(createMutation, variables);
+    const result = await this.execute(mutation, variables);
     
     if (result.createPayment && result.createPayment.id) {
       const paymentId = result.createPayment.id;
@@ -264,8 +312,12 @@ class HygraphService {
           currency
           paymentStatus
           method
-          userId
-          orderId
+          userDetail {
+            id
+          }
+          order {
+            id
+          }
         }
       }
     `;
@@ -423,7 +475,7 @@ class HygraphService {
     // First find payment with this razorpayOrderId
     const payment = await this.findPaymentByRazorpayOrderId(razorpayOrderId);
     
-    if (!payment || !payment.orderId) {
+    if (!payment || !payment.order?.id) {
       return null;
     }
 
@@ -438,7 +490,7 @@ class HygraphService {
       }
     `;
 
-    const result = await this.execute(query, { orderId: payment.orderId });
+    const result = await this.execute(query, { orderId: payment.order.id });
     return result.order;
   }
 
@@ -469,6 +521,64 @@ class HygraphService {
     }
 
     return result.updatePayment;
+  }
+
+  /**
+   * Update UserDetail wallet balance (add amount to existing balance)
+   * @param {string} userId - UserDetail ID
+   * @param {number} amountToAdd - Amount to add in rupees (Float)
+   * @returns {Promise<Object>} Updated userDetail
+   */
+  async updateWalletBalance(userId, amountToAdd) {
+    // First, get current wallet balance
+    const query = `
+      query GetUserDetail($userId: ID!) {
+        userDetail(where: {id: $userId}) {
+          id
+          walletBalance
+        }
+      }
+    `;
+
+    const userData = await this.execute(query, { userId });
+    
+    if (!userData.userDetail) {
+      throw new Error(`UserDetail not found for ID: ${userId}`);
+    }
+
+    const currentBalance = userData.userDetail.walletBalance || 0;
+    const newBalance = currentBalance + amountToAdd;
+
+    const mutation = `
+      mutation UpdateWalletBalance($userId: ID!, $walletBalance: Float!) {
+        updateUserDetail(
+          where: {id: $userId}
+          data: {walletBalance: $walletBalance}
+        ) {
+          id
+          walletBalance
+        }
+      }
+    `;
+
+    const result = await this.execute(mutation, { 
+      userId, 
+      walletBalance: newBalance 
+    });
+
+    // Publish the updated userDetail
+    if (result.updateUserDetail) {
+      const publishMutation = `
+        mutation PublishUserDetail($userId: ID!) {
+          publishUserDetail(where: {id: $userId}, to: PUBLISHED) {
+            id
+          }
+        }
+      `;
+      await this.execute(publishMutation, { userId });
+    }
+
+    return result.updateUserDetail;
   }
 }
 

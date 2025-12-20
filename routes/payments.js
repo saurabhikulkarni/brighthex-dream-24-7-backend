@@ -21,16 +21,20 @@ router.post('/create-order', async (req, res) => {
 
     // userId is required for Hygraph integration
     // Check if Hygraph is configured (only endpoint is required, token is optional)
+    // Support userId from root level or from notes object (for wallet top-ups)
+    const userIdForHygraph = userId || notes?.userId;
     const isHygraphConfigured = process.env.HYGRAPH_ENDPOINT;
     console.log('🔍 Hygraph Configuration Check:');
     console.log('  HYGRAPH_ENDPOINT:', process.env.HYGRAPH_ENDPOINT || 'NOT SET');
     console.log('  isHygraphConfigured:', isHygraphConfigured ? 'YES' : 'NO');
-    console.log('  userId provided:', userId ? 'YES' : 'NO');
+    console.log('  userId provided (root):', userId ? 'YES' : 'NO');
+    console.log('  userId provided (notes):', notes?.userId ? 'YES' : 'NO');
+    console.log('  userId for Hygraph:', userIdForHygraph ? userIdForHygraph : 'NOT FOUND');
     
-    if (isHygraphConfigured && !userId) {
+    if (isHygraphConfigured && !userIdForHygraph) {
       return res.status(400).json({
         success: false,
-        message: 'userId is required for Hygraph integration'
+        message: 'userId is required for Hygraph integration (provide in body or notes.userId)'
       });
     }
 
@@ -45,12 +49,15 @@ router.post('/create-order', async (req, res) => {
       notes: notes || {}
     });
 
+    // Check if this is a wallet top-up (don't create Order for wallet top-ups)
+    const isWalletTopup = notes?.type === 'wallet_topup' || req.body.notes?.type === 'wallet_topup';
+
     // Create payment record in Hygraph (payment is created before order is paid)
     let hygraphPayment = null;
-    if (userId && isHygraphConfigured) {
+    if (userIdForHygraph && isHygraphConfigured) {
       try {
         hygraphPayment = await hygraphService.createPayment({
-          userId,
+          userId: userIdForHygraph,
           razorpayOrderId: order.id,
           amount: amountInPaise, // Amount in paise (service converts to rupees)
           currency: currency.toUpperCase(),
@@ -64,12 +71,12 @@ router.post('/create-order', async (req, res) => {
       }
     }
 
-    // Create order in Hygraph if orderNumber and userId are provided
+    // Create order in Hygraph ONLY if NOT a wallet top-up and orderNumber is provided
     let hygraphOrder = null;
-    if (userId && orderNumber && isHygraphConfigured) {
+    if (!isWalletTopup && userIdForHygraph && orderNumber && isHygraphConfigured) {
       try {
         hygraphOrder = await hygraphService.createOrder({
-          userId,
+          userId: userIdForHygraph,
           orderNumber,
           totalAmount: amountInPaise, // Amount in paise (service converts to rupees)
           orderStatus: 'pending', // OrderStatus enum: lowercase
@@ -89,6 +96,8 @@ router.post('/create-order', async (req, res) => {
       } catch (hygraphError) {
         console.error('⚠️  Failed to create order in Hygraph:', hygraphError.message);
       }
+    } else if (isWalletTopup) {
+      console.log('💰 Wallet top-up detected - skipping Order creation');
     }
 
     if (order) {
@@ -162,12 +171,16 @@ router.post('/verify-signature', async (req, res) => {
 
     if (isValid) {
       // Update Hygraph after successful verification (if configured)
-      const isHygraphConfigured = process.env.HYGRAPH_ENDPOINT && process.env.HYGRAPH_TOKEN;
+      const isHygraphConfigured = process.env.HYGRAPH_ENDPOINT;
       if (isHygraphConfigured) {
         try {
           // Get payment details from Razorpay to get status
           const razorpayPayment = await razorpayService.getPayment(paymentId);
           const hygraphPaymentStatus = hygraphService.mapRazorpayStatusToHygraph(razorpayPayment.status);
+
+          // Get Razorpay order to check if it's wallet top-up
+          const razorpayOrder = await razorpayService.getOrder(orderId);
+          const isWalletTopup = razorpayOrder?.notes?.type === 'wallet_topup';
 
           // Update payment status in Hygraph
           await hygraphService.updatePaymentStatus(orderId, hygraphPaymentStatus, {
@@ -176,16 +189,29 @@ router.post('/verify-signature', async (req, res) => {
           });
           console.log('✅ Payment status updated in Hygraph:', hygraphPaymentStatus);
 
-          // Update order status if payment is completed
+          // Handle wallet top-up or regular order
           if (hygraphPaymentStatus === 'confirmed') {
             try {
               const payment = await hygraphService.findPaymentByRazorpayOrderId(orderId);
-              if (payment && payment.orderId) {
-                await hygraphService.updateOrderStatus(payment.orderId, 'confirmed');
+              
+              if (isWalletTopup && payment) {
+                // Wallet top-up: Update wallet balance
+                const userId = payment.userDetail?.id || razorpayOrder?.notes?.userId;
+                const amountInRupees = razorpayPayment.amount / 100; // Convert from paise to rupees
+                
+                if (userId) {
+                  await hygraphService.updateWalletBalance(userId, amountInRupees);
+                  console.log(`✅ Wallet balance updated: +₹${amountInRupees} for user ${userId}`);
+                } else {
+                  console.warn('⚠️  userId not found for wallet top-up');
+                }
+              } else if (payment && payment.order?.id) {
+                // Regular order: Update order status
+                await hygraphService.updateOrderStatus(payment.order.id, 'confirmed');
                 console.log('✅ Order status updated to confirmed in Hygraph');
               }
-            } catch (orderUpdateError) {
-              console.error('⚠️  Failed to update order status:', orderUpdateError.message);
+            } catch (updateError) {
+              console.error('⚠️  Failed to update order/wallet:', updateError.message);
             }
           }
         } catch (hygraphError) {
@@ -258,9 +284,13 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         console.log('Payment captured:', razorpayPaymentId, 'for order:', razorpayOrderId);
         
         // Update Hygraph if configured
-        const isHygraphConfigured = process.env.HYGRAPH_ENDPOINT && process.env.HYGRAPH_TOKEN;
+        const isHygraphConfigured = process.env.HYGRAPH_ENDPOINT;
         if (isHygraphConfigured) {
           try {
+            // Get Razorpay order to check if wallet top-up
+            const razorpayOrder = await razorpayService.getOrder(razorpayOrderId);
+            const isWalletTopup = razorpayOrder?.notes?.type === 'wallet_topup';
+
             // Update payment status in Hygraph
             await hygraphService.updatePaymentStatus(razorpayOrderId, 'confirmed', {
               razorpayPaymentId: razorpayPaymentId,
@@ -268,10 +298,23 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
             });
             console.log('✅ Payment status updated to confirmed in Hygraph');
 
-            // Update order status
+            // Handle wallet top-up or regular order
             const payment = await hygraphService.findPaymentByRazorpayOrderId(razorpayOrderId);
-            if (payment && payment.orderId) {
-              await hygraphService.updateOrderStatus(payment.orderId, 'confirmed');
+            
+            if (isWalletTopup && payment) {
+              // Wallet top-up: Update wallet balance
+              const userId = payment.userDetail?.id || razorpayOrder?.notes?.userId;
+              const amountInRupees = paymentEntity.amount / 100; // Convert from paise to rupees
+              
+              if (userId) {
+                await hygraphService.updateWalletBalance(userId, amountInRupees);
+                console.log(`✅ Wallet balance updated: +₹${amountInRupees} for user ${userId}`);
+              } else {
+                console.warn('⚠️  userId not found for wallet top-up');
+              }
+            } else if (payment && payment.order?.id) {
+              // Regular order: Update order status
+              await hygraphService.updateOrderStatus(payment.order.id, 'confirmed');
               console.log('✅ Order status updated to confirmed in Hygraph');
             }
           } catch (hygraphError) {
@@ -289,7 +332,7 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         console.log('Payment failed:', razorpayPaymentId, 'for order:', razorpayOrderId);
         
         // Update Hygraph if configured
-        const isHygraphConfigured = process.env.HYGRAPH_ENDPOINT && process.env.HYGRAPH_TOKEN;
+        const isHygraphConfigured = process.env.HYGRAPH_ENDPOINT;
         if (isHygraphConfigured) {
           try {
             await hygraphService.updatePaymentStatus(razorpayOrderId, 'cancelled', {
@@ -310,13 +353,14 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
         
         console.log('Order paid:', razorpayOrderId);
         
-        // Update Hygraph if configured
-        const isHygraphConfigured = process.env.HYGRAPH_ENDPOINT && process.env.HYGRAPH_TOKEN;
+        // Update Hygraph if configured (order.paid event - typically for regular orders, not wallet top-ups)
+        const isHygraphConfigured = process.env.HYGRAPH_ENDPOINT;
         if (isHygraphConfigured) {
           try {
             const payment = await hygraphService.findPaymentByRazorpayOrderId(razorpayOrderId);
-            if (payment && payment.orderId) {
-              await hygraphService.updateOrderStatus(payment.orderId, 'confirmed');
+            // Only update order status if it's a regular order (has order)
+            if (payment && payment.order?.id) {
+              await hygraphService.updateOrderStatus(payment.order.id, 'confirmed');
               console.log('✅ Order status updated to confirmed in Hygraph');
             }
           } catch (hygraphError) {
@@ -375,9 +419,13 @@ router.get('/verify-payment', async (req, res) => {
     }
 
     // Update Hygraph if payment is successful and Hygraph is configured
-    const isHygraphConfigured = process.env.HYGRAPH_ENDPOINT && process.env.HYGRAPH_TOKEN;
+    const isHygraphConfigured = process.env.HYGRAPH_ENDPOINT;
     if (isSuccess && order_id && isHygraphConfigured) {
       try {
+        // Get Razorpay order to check if wallet top-up
+        const razorpayOrder = await razorpayService.getOrder(order_id);
+        const isWalletTopup = razorpayOrder?.notes?.type === 'wallet_topup';
+        
         const hygraphPaymentStatus = hygraphService.mapRazorpayStatusToHygraph(payment.status);
         
         // Update payment status in Hygraph
@@ -387,16 +435,29 @@ router.get('/verify-payment', async (req, res) => {
         });
         console.log('✅ Payment status updated in Hygraph:', hygraphPaymentStatus);
 
-        // Update order status if payment is completed
+        // Handle wallet top-up or regular order
         if (hygraphPaymentStatus === 'confirmed') {
           try {
             const hygraphPayment = await hygraphService.findPaymentByRazorpayOrderId(order_id);
-            if (hygraphPayment && hygraphPayment.orderId) {
-              await hygraphService.updateOrderStatus(hygraphPayment.orderId, 'confirmed');
+            
+            if (isWalletTopup && hygraphPayment) {
+              // Wallet top-up: Update wallet balance
+              const userId = hygraphPayment.userDetail?.id || razorpayOrder?.notes?.userId;
+              const amountInRupees = payment.amount / 100; // Convert from paise to rupees
+              
+              if (userId) {
+                await hygraphService.updateWalletBalance(userId, amountInRupees);
+                console.log(`✅ Wallet balance updated: +₹${amountInRupees} for user ${userId}`);
+              } else {
+                console.warn('⚠️  userId not found for wallet top-up');
+              }
+            } else if (hygraphPayment && hygraphPayment.order?.id) {
+              // Regular order: Update order status
+              await hygraphService.updateOrderStatus(hygraphPayment.order.id, 'confirmed');
               console.log('✅ Order status updated to confirmed in Hygraph');
             }
-          } catch (orderUpdateError) {
-            console.error('⚠️  Failed to update order status:', orderUpdateError.message);
+          } catch (updateError) {
+            console.error('⚠️  Failed to update order/wallet:', updateError.message);
           }
         }
       } catch (hygraphError) {

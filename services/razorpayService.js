@@ -108,6 +108,25 @@ class RazorpayService {
   }
 
   /**
+   * Get Razorpay order details
+   * @param {string} orderId - Razorpay order ID
+   * @returns {Promise<Object>} Razorpay order object
+   */
+  async getOrder(orderId) {
+    try {
+      if (!this.razorpay) {
+        throw new Error('Razorpay not initialized');
+      }
+
+      const order = await this.razorpay.orders.fetch(orderId);
+      return order;
+    } catch (error) {
+      console.error('Razorpay Get Order Error:', error);
+      throw new Error('Failed to fetch order details');
+    }
+  }
+
+  /**
    * Refund payment
    * @param {string} paymentId - Razorpay payment ID
    * @param {number} amount - Refund amount in paise (optional, full refund if not provided)
