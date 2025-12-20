@@ -29,7 +29,18 @@ router.post('/create-order', async (req, res) => {
       notes: notes || {}
     });
 
+    // TODO: Create order in Hygraph with orderStatus = 'created' (not 'status')
+    // Use field name: orderStatus
+
     if (order) {
+      // Build redirect URL for payment verification
+      const baseUrl = req.protocol + '://' + req.get('host');
+      const redirectUrl = `${baseUrl}/api/payments/verify-payment`;
+      const frontendRedirectUrl = req.body.redirect_url || process.env.FRONTEND_REDIRECT_URL || 'http://localhost:3001';
+      
+      // Include frontend redirect URL in the verify-payment redirect
+      const verifyRedirectUrl = `${redirectUrl}?redirect_url=${encodeURIComponent(frontendRedirectUrl)}`;
+
       res.json({
         success: true,
         order: {
@@ -39,6 +50,21 @@ router.post('/create-order', async (req, res) => {
           receipt: order.receipt,
           status: order.status,
           createdAt: order.created_at
+        },
+        paymentOptions: {
+          keyId: process.env.RAZORPAY_KEY_ID,
+          amount: order.amount, // Amount in paise
+          currency: order.currency,
+          orderId: order.id,
+          name: req.body.name || 'My Store',
+          description: req.body.description || 'Order Payment',
+          // Redirect URL to call after payment - this will redirect to frontend
+          redirectUrl: verifyRedirectUrl,
+          prefill: {
+            name: req.body.customer_name || '',
+            email: req.body.customer_email || '',
+            contact: req.body.customer_contact || ''
+          }
         }
       });
     } else {
@@ -76,6 +102,10 @@ router.post('/verify-signature', async (req, res) => {
     const isValid = razorpayService.verifySignature(orderId, paymentId, signature);
 
     if (isValid) {
+      // TODO: Update Hygraph after successful verification:
+      // - Update Payment model: paymentStatus = 'captured' (not 'status')
+      // - Update Order model: orderStatus = 'paid' (not 'status')
+      
       res.json({
         success: true,
         verified: true,
@@ -134,12 +164,23 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
       case 'payment.captured':
         // Payment successful
         console.log('Payment captured:', event.payload.payment.entity.id);
-        // Update payment status in your database
+        // TODO: Update payment status in Hygraph
+        // Use field name: paymentStatus (not status)
+        // Example: updatePaymentStatus(paymentId, 'captured')
         break;
       case 'payment.failed':
         // Payment failed
         console.log('Payment failed:', event.payload.payment.entity.id);
-        // Update payment status in your database
+        // TODO: Update payment status in Hygraph
+        // Use field name: paymentStatus (not status)
+        // Example: updatePaymentStatus(paymentId, 'failed')
+        break;
+      case 'order.paid':
+        // Order paid
+        console.log('Order paid:', event.payload.order.entity.id);
+        // TODO: Update order status in Hygraph
+        // Use field name: orderStatus (not status)
+        // Example: updateOrderStatus(orderId, 'paid')
         break;
       default:
         console.log('Unhandled webhook event:', event.event);
@@ -154,64 +195,67 @@ router.post('/webhook', express.raw({ type: 'application/json' }), async (req, r
 
 /**
  * GET /api/payments/verify-payment
- * Verify payment using payment ID (alternative to webhooks)
- * Use this endpoint as a redirect URL callback
- * Example redirect URL: https://yoursite.com/api/payments/verify-payment?payment_id=pay_xxx&order_id=order_xxx
+ * Verify payment and redirect to frontend with status
+ * This endpoint is called by Razorpay after payment completion
+ * Redirect URL format: ?payment_id=pay_xxx&order_id=order_xxx&razorpay_signature=xxx
  */
 router.get('/verify-payment', async (req, res) => {
   try {
-    const { payment_id, order_id } = req.query;
+    const { payment_id, order_id, razorpay_signature, redirect_url } = req.query;
+    const frontendRedirectUrl = redirect_url || process.env.FRONTEND_REDIRECT_URL || 'http://localhost:3001';
 
     if (!payment_id) {
-      return res.status(400).json({
-        success: false,
-        message: 'payment_id is required'
-      });
+      // Redirect to frontend with error
+      const errorUrl = `${frontendRedirectUrl}?payment_status=failed&message=${encodeURIComponent('Payment ID is required')}`;
+      return res.redirect(errorUrl);
     }
 
     // Fetch payment details from Razorpay API
     const payment = await razorpayService.getPayment(payment_id);
 
     if (!payment) {
-      return res.status(404).json({
-        success: false,
-        message: 'Payment not found'
-      });
+      const errorUrl = `${frontendRedirectUrl}?payment_status=failed&message=${encodeURIComponent('Payment not found')}`;
+      return res.redirect(errorUrl);
     }
 
     // Verify payment status
     const isSuccess = payment.status === 'captured' || payment.status === 'authorized';
     
-    // If order_id is provided, verify signature
-    let signatureValid = null;
-    if (order_id && req.query.razorpay_signature) {
+    // Verify signature if provided
+    let signatureValid = false;
+    if (order_id && razorpay_signature) {
       signatureValid = razorpayService.verifySignature(
         order_id,
         payment_id,
-        req.query.razorpay_signature
+        razorpay_signature
       );
     }
 
-    res.json({
-      success: isSuccess,
-      payment: {
-        id: payment.id,
-        order_id: payment.order_id,
-        amount: payment.amount,
-        currency: payment.currency,
-        status: payment.status,
-        method: payment.method,
-        created_at: payment.created_at
-      },
-      signature_verified: signatureValid,
-      message: isSuccess ? 'Payment verified successfully' : 'Payment verification failed'
+    // TODO: If payment is successful, update Hygraph:
+    // - Update Payment model: paymentStatus = 'captured' (not 'status')
+    // - Update Order model: orderStatus = 'paid' (not 'status')
+    
+    // Build redirect URL with payment details
+    const params = new URLSearchParams({
+      payment_status: isSuccess ? 'success' : 'failed',
+      payment_id: payment.id,
+      order_id: payment.order_id || order_id || '',
+      amount: payment.amount,
+      currency: payment.currency,
+      signature_verified: signatureValid.toString()
     });
+
+    if (!isSuccess) {
+      params.append('message', encodeURIComponent('Payment verification failed'));
+    }
+
+    const redirectUrl = `${frontendRedirectUrl}?${params.toString()}`;
+    res.redirect(redirectUrl);
   } catch (error) {
     console.error('Error in verify-payment:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Payment verification failed'
-    });
+    const frontendRedirectUrl = req.query.redirect_url || process.env.FRONTEND_REDIRECT_URL || 'http://localhost:3001';
+    const errorUrl = `${frontendRedirectUrl}?payment_status=error&message=${encodeURIComponent(error.message || 'Payment verification failed')}`;
+    res.redirect(errorUrl);
   }
 });
 
