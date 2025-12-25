@@ -57,9 +57,11 @@ app.get('/health', (req, res) => {
 // Routes
 const authRoutes = require('./routes/auth');
 const paymentRoutes = require('./routes/payments');
+const shiprocketRoutes = require('./routes/shiprocket');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/payments', paymentRoutes);
+app.use('/api/shiprocket', shiprocketRoutes);
 
 // Error handling middleware
 app.use((err, req, res, next) => {
