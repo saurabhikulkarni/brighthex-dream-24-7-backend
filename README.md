@@ -181,8 +181,8 @@ When deploying to Vercel, ensure the following environment variables are configu
 
 **MSG91 Configuration:**
 ```env
-MSG91_AUTH_KEY=460639ALxMlUU8Q688c88b6P1
-MSG91_TEMPLATE_ID=688b0b58d6fc05287e15c132
+MSG91_AUTH_KEY=your_msg91_auth_key_here
+MSG91_TEMPLATE_ID=your_msg91_template_id_here
 MSG91_SENDER_ID=DREAM24
 ```
 
