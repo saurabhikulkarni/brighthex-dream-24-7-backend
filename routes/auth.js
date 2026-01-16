@@ -5,6 +5,25 @@ const otpService = require('../services/otpService');
 const hygraphUserService = require('../services/hygraphUserService');
 const tokenBlacklistService = require('../services/tokenBlacklistService');
 const axios = require('axios');
+const crypto = require('crypto');
+
+// Helper function to perform constant-time string comparison
+function constantTimeCompare(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') {
+    return false;
+  }
+  
+  // Use Node.js built-in constant-time comparison
+  const bufA = Buffer.from(a);
+  const bufB = Buffer.from(b);
+  
+  // If lengths differ, still do comparison to maintain constant time
+  if (bufA.length !== bufB.length) {
+    return false;
+  }
+  
+  return crypto.timingSafeEqual(bufA, bufB);
+}
 
 // Helper function to initialize crypto and get JWT tools
 async function getJWTTools() {
@@ -342,16 +361,26 @@ router.post('/logout', require('../middlewares/auth'), async (req, res) => {
     const token = authHeader.split(' ')[1];
     const user = req.user;
     
-    // 1. Blacklist token in shop backend
+    // 1. Blacklist access token in shop backend
     await tokenBlacklistService.addToBlacklist(token);
     
-    // 2. Clear both tokens in Hygraph
+    // 2. Blacklist refresh token if it exists
+    if (user.refreshToken) {
+      try {
+        await tokenBlacklistService.addToBlacklist(user.refreshToken);
+      } catch (error) {
+        console.error('Failed to blacklist refresh token:', error.message);
+        // Continue with logout even if blacklisting fails
+      }
+    }
+    
+    // 3. Clear both tokens in Hygraph
     await hygraphUserService.updateUser(user.mobile, {
       authKey: '',
       refreshToken: ''
     });
     
-    // 3. Invalidate in fantasy backend
+    // 4. Invalidate in fantasy backend
     const fantasyUserId = user.fantasy_user_id || null;
     if (fantasyUserId && process.env.FANTASY_API_URL && process.env.INTERNAL_API_SECRET) {
       try {
@@ -529,8 +558,8 @@ router.post('/refresh-token', async (req, res) => {
         });
       }
       
-      // Verify stored refresh token matches
-      if (user.refreshToken !== refreshToken) {
+      // Verify stored refresh token matches using constant-time comparison
+      if (!user.refreshToken || !constantTimeCompare(user.refreshToken, refreshToken)) {
         return res.status(401).json({
           success: false,
           message: 'Refresh token has been revoked. Please login again.'
