@@ -71,23 +71,44 @@ class HygraphUserService {
 
   // Update user
   async updateUser(mobile, updateData) {
+    // Build data fields dynamically
+    const dataFields = [];
+    const variables = { mobile: mobile.toString() };
+    
+    if (updateData.authKey !== undefined) {
+      dataFields.push('authKey: $authKey');
+      variables.authKey = updateData.authKey;
+    }
+    if (updateData.deviceId !== undefined) {
+      dataFields.push('deviceId: $deviceId');
+      variables.deviceId = updateData.deviceId;
+    }
+    if (updateData.fullname !== undefined) {
+      dataFields.push('fullname: $fullname');
+      variables.fullname = updateData.fullname;
+    }
+    if (updateData.email !== undefined) {
+      dataFields.push('email: $email');
+      variables.email = updateData.email;
+    }
+    if (updateData.lastLogin !== undefined) {
+      dataFields.push('lastLogin: $lastLogin');
+      variables.lastLogin = updateData.lastLogin;
+    }
+    
     const mutation = `
       mutation UpdateUser(
         $mobile: String!
-        $authKey: String
-        $deviceId: String
-        $fullname: String
-        $email: String
-        $lastLogin: DateTime
+        ${updateData.authKey !== undefined ? '$authKey: String' : ''}
+        ${updateData.deviceId !== undefined ? '$deviceId: String' : ''}
+        ${updateData.fullname !== undefined ? '$fullname: String' : ''}
+        ${updateData.email !== undefined ? '$email: String' : ''}
+        ${updateData.lastLogin !== undefined ? '$lastLogin: DateTime' : ''}
       ) {
         updateUser(
           where: { mobile: $mobile }
           data: {
-            ${updateData.authKey ? 'authKey: $authKey' : ''}
-            ${updateData.deviceId ? 'deviceId: $deviceId' : ''}
-            ${updateData.fullname !== undefined ? 'fullname: $fullname' : ''}
-            ${updateData.email !== undefined ? 'email: $email' : ''}
-            ${updateData.lastLogin ? 'lastLogin: $lastLogin' : ''}
+            ${dataFields.join('\n            ')}
           }
         ) {
           id
@@ -102,11 +123,6 @@ class HygraphUserService {
         }
       }
     `;
-    
-    const variables = {
-      mobile: mobile.toString(),
-      ...updateData
-    };
     
     const data = await hygraphClient.mutate(mutation, variables);
     return data.updateUser;
