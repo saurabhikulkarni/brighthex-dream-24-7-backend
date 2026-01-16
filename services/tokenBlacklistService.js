@@ -1,20 +1,28 @@
 const redis = require('redis');
 
 let client;
+let clientPromise;
 
 async function getClient() {
-  if (!client) {
-    client = redis.createClient({ 
-      url: process.env.REDIS_URL || 'redis://localhost:6379' 
-    });
-    
-    client.on('error', err => console.error('Redis Client Error:', err));
-    
-    if (!client.isOpen) {
-      await client.connect();
-    }
+  if (client && client.isOpen) {
+    return client;
   }
-  return client;
+  
+  if (!clientPromise) {
+    clientPromise = (async () => {
+      const newClient = redis.createClient({ 
+        url: process.env.REDIS_URL || 'redis://localhost:6379' 
+      });
+      
+      newClient.on('error', err => console.error('Redis Client Error:', err));
+      
+      await newClient.connect();
+      client = newClient;
+      return client;
+    })();
+  }
+  
+  return clientPromise;
 }
 
 async function addToBlacklist(token) {

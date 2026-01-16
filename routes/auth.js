@@ -6,6 +6,16 @@ const hygraphUserService = require('../services/hygraphUserService');
 const tokenBlacklistService = require('../services/tokenBlacklistService');
 const axios = require('axios');
 
+// Helper function to initialize crypto and get JWT tools
+async function getJWTTools() {
+  const crypto = await import('node:crypto');
+  if (!globalThis.crypto) {
+    globalThis.crypto = crypto.webcrypto;
+  }
+  const { SignJWT } = await import('jose');
+  return { SignJWT };
+}
+
 // Rate limiting for OTP endpoints (stricter)
 const otpLimiter = require('express-rate-limit')({
   windowMs: 15 * 60 * 1000, // 15 minutes
@@ -130,15 +140,6 @@ router.post('/verify-otp', async (req, res) => {
       // Create new user in Hygraph
       isNewUser = true;
       
-      // Generate JWT token first
-      const crypto = await import('node:crypto');
-      if (!globalThis.crypto) {
-        globalThis.crypto = crypto.webcrypto;
-      }
-
-      const { SignJWT } = await import('jose');
-      const secret = Buffer.from(process.env.SECRET_TOKEN || 'your-secret-key-here');
-      
       // Create user in Hygraph first to get ID
       const tempUser = await hygraphUserService.createUser({
         mobile: cleanNumber,
@@ -189,12 +190,7 @@ router.post('/verify-otp', async (req, res) => {
     }
 
     // Generate unified JWT token with module information
-    const crypto = await import('node:crypto');
-    if (!globalThis.crypto) {
-      globalThis.crypto = crypto.webcrypto;
-    }
-
-    const { SignJWT } = await import('jose');
+    const { SignJWT } = await getJWTTools();
     const secret = Buffer.from(process.env.SECRET_TOKEN || 'your-secret-key-here');
     
     const token = await new SignJWT({
@@ -335,12 +331,13 @@ router.post('/logout', require('../middlewares/auth'), async (req, res) => {
     await tokenBlacklistService.addToBlacklist(token);
     
     // 2. Invalidate in fantasy backend
-    if (user.fantasy_user_id && process.env.FANTASY_API_URL && process.env.INTERNAL_API_SECRET) {
+    const fantasyUserId = user.fantasy_user_id || null;
+    if (fantasyUserId && process.env.FANTASY_API_URL && process.env.INTERNAL_API_SECRET) {
       try {
         await axios.post(
           `${process.env.FANTASY_API_URL}/api/user/internal/logout`,
           { 
-            user_id: user.fantasy_user_id, 
+            user_id: fantasyUserId, 
             token: token 
           },
           { 
