@@ -99,12 +99,12 @@ async function testTokenFunctionality() {
       fantasy_enabled: true
     })
       .setProtectedHeader({ alg: 'HS256' })
-      .setExpirationTime('0s')
+      .setExpirationTime('1s') // Expires in 1 second
       .setIssuedAt()
       .sign(secret);
     
-    // Wait a moment to ensure it expires
-    await new Promise(resolve => setTimeout(resolve, 1000));
+    // Wait for token to expire
+    await new Promise(resolve => setTimeout(resolve, 2000));
     
     try {
       await jwtVerify(expiredToken, secret);

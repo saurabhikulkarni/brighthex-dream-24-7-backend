@@ -17,19 +17,13 @@ function constantTimeCompare(a, b) {
   const bufA = Buffer.from(a);
   const bufB = Buffer.from(b);
   
-  // Pad shorter buffer to match length for constant-time comparison
-  const maxLength = Math.max(bufA.length, bufB.length);
-  const paddedA = Buffer.alloc(maxLength);
-  const paddedB = Buffer.alloc(maxLength);
+  // Check length equality first (this is acceptable as lengths are not secret)
+  if (bufA.length !== bufB.length) {
+    return false;
+  }
   
-  bufA.copy(paddedA);
-  bufB.copy(paddedB);
-  
-  // Always perform comparison even if lengths differ
-  const equal = crypto.timingSafeEqual(paddedA, paddedB);
-  
-  // Return false if lengths differ, but still performed constant-time comparison
-  return bufA.length === bufB.length && equal;
+  // Perform constant-time comparison
+  return crypto.timingSafeEqual(bufA, bufB);
 }
 
 // Helper function to initialize crypto and get JWT tools
@@ -382,14 +376,9 @@ router.post('/logout', require('../middlewares/auth'), async (req, res) => {
     // 1. Blacklist access token in shop backend
     await tokenBlacklistService.addToBlacklist(token);
     
-    // 2. Blacklist refresh token if it exists
+    // 2. Blacklist refresh token if it exists (critical security step)
     if (user.refreshToken) {
-      try {
-        await tokenBlacklistService.addToBlacklist(user.refreshToken);
-      } catch (error) {
-        console.error('Failed to blacklist refresh token:', error.message);
-        // Continue with logout even if blacklisting fails
-      }
+      await tokenBlacklistService.addToBlacklist(user.refreshToken);
     }
     
     // 3. Clear both tokens in Hygraph
@@ -575,7 +564,7 @@ router.post('/refresh-token', async (req, res) => {
       // Generate new access token
       const newAccessToken = await new SignJWT({
         userId: user.id,
-        _id: user.fantasy_user_id,
+        _id: user.fantasy_user_id || user.id, // Fallback to user.id if fantasy_user_id is not set
         mobile: user.mobile,
         modules: ['shop', 'fantasy'],
         shop_enabled: true,
