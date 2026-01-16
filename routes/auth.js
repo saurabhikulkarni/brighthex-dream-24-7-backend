@@ -3,7 +3,18 @@ const router = express.Router();
 const msg91Service = require('../services/msg91Service');
 const otpService = require('../services/otpService');
 const hygraphUserService = require('../services/hygraphUserService');
+const tokenBlacklistService = require('../services/tokenBlacklistService');
 const axios = require('axios');
+
+// Helper function to initialize crypto and get JWT tools
+async function getJWTTools() {
+  const crypto = await import('node:crypto');
+  if (!globalThis.crypto) {
+    globalThis.crypto = crypto.webcrypto;
+  }
+  const { SignJWT } = await import('jose');
+  return { SignJWT };
+}
 
 // Rate limiting for OTP endpoints (stricter)
 const otpLimiter = require('express-rate-limit')({
@@ -129,15 +140,6 @@ router.post('/verify-otp', async (req, res) => {
       // Create new user in Hygraph
       isNewUser = true;
       
-      // Generate JWT token first
-      const crypto = await import('node:crypto');
-      if (!globalThis.crypto) {
-        globalThis.crypto = crypto.webcrypto;
-      }
-
-      const { SignJWT } = await import('jose');
-      const secret = Buffer.from(process.env.SECRET_TOKEN || 'your-secret-key-here');
-      
       // Create user in Hygraph first to get ID
       const tempUser = await hygraphUserService.createUser({
         mobile: cleanNumber,
@@ -145,97 +147,94 @@ router.post('/verify-otp', async (req, res) => {
         deviceId: deviceId || ''
       });
       
-      // Generate token with Hygraph user ID
-      const token = await new SignJWT({ 
-        userId: tempUser.id,
-        mobile: cleanNumber 
-      })
-        .setProtectedHeader({ alg: 'HS256' })
-        .setIssuedAt()
-        .sign(secret);
-      
-      // Update user with auth_key
-      user = await hygraphUserService.updateUser(cleanNumber, {
-        authKey: token,
-        lastLogin: new Date().toISOString()
-      });
-      
-      user.authKey = token;
+      user = tempUser;
       
       console.log(`New user created in Hygraph with ID: ${user.id}`);
     } else {
-      // Update existing user
-      const crypto = await import('node:crypto');
-      if (!globalThis.crypto) {
-        globalThis.crypto = crypto.webcrypto;
-      }
-
-      const { SignJWT } = await import('jose');
-      const secret = Buffer.from(process.env.SECRET_TOKEN || 'your-secret-key-here');
-      
-      const token = await new SignJWT({ 
-        userId: user.id,
-        mobile: cleanNumber 
-      })
-        .setProtectedHeader({ alg: 'HS256' })
-        .setIssuedAt()
-        .sign(secret);
-      
-      user = await hygraphUserService.updateUser(cleanNumber, {
-        authKey: token,
-        deviceId: deviceId || '',
-        lastLogin: new Date().toISOString()
-      });
-      
-      user.authKey = token;
-      
       console.log(`Existing user logged in from Hygraph: ${user.id}`);
     }
+
+    // Sync with Fantasy backend to get fantasy_user_id
+    let fantasyUserId = user.fantasy_user_id || null;
+    try {
+      if (process.env.FANTASY_API_URL && process.env.INTERNAL_API_SECRET) {
+        console.log(`Syncing user ${user.id} with fantasy backend...`);
+        const fantasyResponse = await axios.post(
+          `${process.env.FANTASY_API_URL}/api/user/internal/sync-user`,
+          {
+            mobile: cleanNumber,
+            hygraph_user_id: user.id,
+            shop_enabled: true,
+            fantasy_enabled: true
+          },
+          {
+            headers: { 
+              'X-Internal-Secret': process.env.INTERNAL_API_SECRET 
+            },
+            timeout: 5000
+          }
+        );
+        
+        // Update Hygraph user with fantasy_user_id
+        if (fantasyResponse.data && fantasyResponse.data.success && fantasyResponse.data.user_id) {
+          await hygraphUserService.updateUserById(user.id, { 
+            fantasy_user_id: fantasyResponse.data.user_id 
+          });
+          fantasyUserId = fantasyResponse.data.user_id;
+          console.log('Fantasy sync completed successfully');
+        }
+      }
+    } catch (syncError) {
+      console.error('Fantasy sync failed:', syncError.message);
+      // Continue even if fantasy sync fails - user can still use shop
+    }
+
+    // Generate unified JWT token with module information
+    const { SignJWT } = await getJWTTools();
+    const secret = Buffer.from(process.env.SECRET_TOKEN || 'your-secret-key-here');
+    
+    const token = await new SignJWT({
+      userId: user.id,
+      _id: fantasyUserId || user.id, // For compatibility with fantasy backend
+      mobile: cleanNumber,
+      modules: ['shop', 'fantasy'],
+      shop_enabled: true,
+      fantasy_enabled: true
+    })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setExpirationTime('30d')
+      .setIssuedAt()
+      .sign(secret);
+    
+    // Update user with auth_key and last login
+    user = await hygraphUserService.updateUser(cleanNumber, {
+      authKey: token,
+      deviceId: deviceId || '',
+      lastLogin: new Date().toISOString()
+    });
+    
+    user.authKey = token;
 
     // Delete OTP from storage (one-time use)
     if (sessionId) {
       await otpService.deleteOtp(sessionId);
     }
 
-    // Sync with fantasy app backend (Firebase)
-    try {
-      if (process.env.FANTASY_API_URL) {
-        console.log(`Syncing user ${user.id} with fantasy app...`);
-        await axios.post(
-          `${process.env.FANTASY_API_URL}/api/user/sync-from-shopping`,
-          {
-            userId: user.id,
-            mobile: cleanNumber,
-            isNewUser: isNewUser,
-            fullname: user.fullname || '',
-            email: user.email || ''
-          },
-          {
-            headers: {
-              'Content-Type': 'application/json',
-              'x-api-key': process.env.FANTASY_API_KEY || ''
-            },
-            timeout: 5000
-          }
-        );
-        console.log('Fantasy app sync completed');
-      }
-    } catch (syncError) {
-      console.error('Failed to sync with fantasy app:', syncError.message);
-    }
-
     res.json({
       success: true,
       verified: true,
-      message: 'OTP verified successfully',
+      message: 'Login successful',
+      token: user.authKey,
       user: {
-        userId: user.id,
+        id: user.id,
+        fantasy_user_id: fantasyUserId,
         mobile: user.mobile,
-        auth_key: user.authKey,
-        isNewUser: isNewUser,
-        fullname: user.fullname || '',
         email: user.email || '',
-        status: user.status
+        name: user.fullname || '',
+        modules: ['shop', 'fantasy'],
+        shop_enabled: true,
+        fantasy_enabled: true,
+        isNewUser: isNewUser
       }
     });
 
@@ -314,6 +313,53 @@ router.put('/profile', require('../middlewares/auth'), async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to update profile'
+    });
+  }
+});
+
+/**
+ * POST /api/auth/logout
+ * Unified logout - invalidates token across both Shop and Fantasy backends
+ */
+router.post('/logout', require('../middlewares/auth'), async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization;
+    const token = authHeader.split(' ')[1];
+    const user = req.user;
+    
+    // 1. Blacklist token in shop backend
+    await tokenBlacklistService.addToBlacklist(token);
+    
+    // 2. Invalidate in fantasy backend
+    const fantasyUserId = user.fantasy_user_id || null;
+    if (fantasyUserId && process.env.FANTASY_API_URL && process.env.INTERNAL_API_SECRET) {
+      try {
+        await axios.post(
+          `${process.env.FANTASY_API_URL}/api/user/internal/logout`,
+          { 
+            user_id: fantasyUserId, 
+            token: token 
+          },
+          { 
+            headers: { 'X-Internal-Secret': process.env.INTERNAL_API_SECRET },
+            timeout: 5000
+          }
+        );
+      } catch (error) {
+        console.error('Fantasy logout failed:', error.message);
+        // Continue even if fantasy logout fails
+      }
+    }
+    
+    res.json({ 
+      success: true, 
+      message: 'Successfully logged out from all modules' 
+    });
+  } catch (error) {
+    console.error('Logout error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Logout failed. Please try again.' 
     });
   }
 });

@@ -1,6 +1,31 @@
 # Shopping App Backend API
 
-Backend server for MSG91 OTP and Razorpay payment processing.
+Backend server for MSG91 OTP, Razorpay payment processing, and unified authentication with Fantasy module.
+
+---
+
+## 🆕 Unified Authentication System
+
+This backend now supports **unified authentication** across Shop and Fantasy modules. A single JWT token works for both backends.
+
+**Key Features:**
+- Single login for both Shop and Fantasy modules
+- JWT token valid across both backends
+- Module-based access control
+- Token blacklist using Redis
+- Graceful degradation if Fantasy backend is unavailable
+
+**Documentation:**
+- [Unified Authentication Guide](./docs/UNIFIED_AUTH.md)
+- [Hygraph Schema Migration](./docs/HYGRAPH_MIGRATION.md)
+
+**Required Environment Variables:**
+```env
+SECRET_TOKEN=your-shared-secret-key-here
+FANTASY_API_URL=https://fantasy-api.yourdomain.com
+INTERNAL_API_SECRET=your-strong-random-secret-here
+REDIS_URL=redis://localhost:6379
+```
 
 ---
 
@@ -44,6 +69,51 @@ Server runs on `http://localhost:3000`
 ---
 
 ## 📡 API Endpoints
+
+### Authentication
+
+**Send OTP:**
+```bash
+POST /api/auth/send-otp
+Body: { "mobileNumber": "9876543210" }
+```
+
+**Verify OTP & Login:**
+```bash
+POST /api/auth/verify-otp
+Body: { "mobileNumber": "9876543210", "otp": "123456", "sessionId": "..." }
+Response: {
+  "success": true,
+  "token": "jwt-token-here",
+  "user": {
+    "id": "hygraph-user-id",
+    "fantasy_user_id": "mongodb-user-id",
+    "mobile": "9876543210",
+    "modules": ["shop", "fantasy"],
+    "shop_enabled": true,
+    "fantasy_enabled": true
+  }
+}
+```
+
+**Logout (Unified):**
+```bash
+POST /api/auth/logout
+Headers: { "Authorization": "Bearer <token>" }
+```
+
+**Get Current User:**
+```bash
+GET /api/auth/me
+Headers: { "Authorization": "Bearer <token>" }
+```
+
+**Update Profile:**
+```bash
+PUT /api/auth/profile
+Headers: { "Authorization": "Bearer <token>" }
+Body: { "fullname": "John Doe", "email": "john@example.com" }
+```
 
 ### MSG91 OTP
 

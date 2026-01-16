@@ -69,7 +69,7 @@ class HygraphUserService {
     return data.createUser;
   }
 
-  // Update user
+  // Update user by mobile
   async updateUser(mobile, updateData) {
     // Build data fields dynamically
     const dataFields = [];
@@ -119,6 +119,60 @@ class HygraphUserService {
           status
         }
         publishUser(where: { mobile: $mobile }) {
+          id
+        }
+      }
+    `;
+    
+    const data = await hygraphClient.mutate(mutation, variables);
+    return data.updateUser;
+  }
+
+  // Update user by ID (for fantasy_user_id and module fields)
+  async updateUserById(userId, updateData) {
+    // Build data fields dynamically
+    const dataFields = [];
+    const variables = { id: userId };
+    
+    if (updateData.fantasy_user_id !== undefined) {
+      dataFields.push('fantasy_user_id: $fantasy_user_id');
+      variables.fantasy_user_id = updateData.fantasy_user_id;
+    }
+    if (updateData.shop_enabled !== undefined) {
+      dataFields.push('shop_enabled: $shop_enabled');
+      variables.shop_enabled = updateData.shop_enabled;
+    }
+    if (updateData.fantasy_enabled !== undefined) {
+      dataFields.push('fantasy_enabled: $fantasy_enabled');
+      variables.fantasy_enabled = updateData.fantasy_enabled;
+    }
+    if (updateData.modules !== undefined) {
+      dataFields.push('modules: $modules');
+      variables.modules = updateData.modules;
+    }
+    
+    const mutation = `
+      mutation UpdateUserById(
+        $id: ID!
+        ${updateData.fantasy_user_id !== undefined ? '$fantasy_user_id: String' : ''}
+        ${updateData.shop_enabled !== undefined ? '$shop_enabled: Boolean' : ''}
+        ${updateData.fantasy_enabled !== undefined ? '$fantasy_enabled: Boolean' : ''}
+        ${updateData.modules !== undefined ? '$modules: [String!]' : ''}
+      ) {
+        updateUser(
+          where: { id: $id }
+          data: {
+            ${dataFields.join('\n            ')}
+          }
+        ) {
+          id
+          mobile
+          fullname
+          email
+          authKey
+          status
+        }
+        publishUser(where: { id: $id }) {
           id
         }
       }
