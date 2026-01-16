@@ -11,12 +11,14 @@ class HygraphUserService {
           fullname
           email
           authKey
+          refreshToken
           status
           image
           deviceId
           lastLogin
           createdAt
           updatedAt
+          fantasy_user_id
         }
       }
     `;
@@ -79,6 +81,10 @@ class HygraphUserService {
       dataFields.push('authKey: $authKey');
       variables.authKey = updateData.authKey;
     }
+    if (updateData.refreshToken !== undefined) {
+      dataFields.push('refreshToken: $refreshToken');
+      variables.refreshToken = updateData.refreshToken;
+    }
     if (updateData.deviceId !== undefined) {
       dataFields.push('deviceId: $deviceId');
       variables.deviceId = updateData.deviceId;
@@ -100,6 +106,7 @@ class HygraphUserService {
       mutation UpdateUser(
         $mobile: String!
         ${updateData.authKey !== undefined ? '$authKey: String' : ''}
+        ${updateData.refreshToken !== undefined ? '$refreshToken: String' : ''}
         ${updateData.deviceId !== undefined ? '$deviceId: String' : ''}
         ${updateData.fullname !== undefined ? '$fullname: String' : ''}
         ${updateData.email !== undefined ? '$email: String' : ''}
@@ -116,6 +123,7 @@ class HygraphUserService {
           fullname
           email
           authKey
+          refreshToken
           status
         }
         publishUser(where: { mobile: $mobile }) {
@@ -192,11 +200,13 @@ class HygraphUserService {
           fullname
           email
           authKey
+          refreshToken
           status
           image
           deviceId
           lastLogin
           createdAt
+          fantasy_user_id
         }
       }
     `;
