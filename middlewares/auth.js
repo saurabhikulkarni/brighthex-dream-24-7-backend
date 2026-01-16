@@ -1,0 +1,80 @@
+const User = require('../models/User');
+
+/**
+ * JWT Authentication Middleware
+ * Verifies JWT token using Jose library (same as fantasy app)
+ */
+const authMiddleware = async (req, res, next) => {
+  try {
+    // Get token from header
+    const authHeader = req.headers.authorization;
+    
+    if (!authHeader || !authHeader.startsWith('Bearer ')) {
+      return res.status(401).json({
+        success: false,
+        message: 'No token provided. Authorization header required.'
+      });
+    }
+
+    const token = authHeader.split(' ')[1];
+
+    if (!token) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid token format'
+      });
+    }
+
+    // Verify JWT token using Jose (same as fantasy app)
+    const crypto = await import('node:crypto');
+    if (!globalThis.crypto) {
+      globalThis.crypto = crypto.webcrypto;
+    }
+
+    const { jwtVerify } = await import('jose');
+    const secret = Buffer.from(process.env.SECRET_TOKEN || 'your-secret-key-here');
+
+    try {
+      const { payload } = await jwtVerify(token, secret);
+      
+      // Find user by ID from token
+      const user = await User.findById(payload._id).select('-__v').lean();
+
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          message: 'User not found'
+        });
+      }
+
+      // Check if user is blocked
+      if (user.status === 'blocked') {
+        return res.status(403).json({
+          success: false,
+          message: 'Account is blocked. Please contact support.'
+        });
+      }
+
+      // Attach user to request object
+      req.user = user;
+      req.userId = user._id.toString();
+      
+      next();
+    } catch (jwtError) {
+      console.error('JWT Verification Error:', jwtError.message);
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid or expired token'
+      });
+    }
+
+  } catch (error) {
+    console.error('Auth Middleware Error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Authentication failed'
+    });
+  }
+};
+
+module.exports = authMiddleware;
