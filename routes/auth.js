@@ -17,12 +17,19 @@ function constantTimeCompare(a, b) {
   const bufA = Buffer.from(a);
   const bufB = Buffer.from(b);
   
-  // If lengths differ, still do comparison to maintain constant time
-  if (bufA.length !== bufB.length) {
-    return false;
-  }
+  // Pad shorter buffer to match length for constant-time comparison
+  const maxLength = Math.max(bufA.length, bufB.length);
+  const paddedA = Buffer.alloc(maxLength);
+  const paddedB = Buffer.alloc(maxLength);
   
-  return crypto.timingSafeEqual(bufA, bufB);
+  bufA.copy(paddedA);
+  bufB.copy(paddedB);
+  
+  // Always perform comparison even if lengths differ
+  const equal = crypto.timingSafeEqual(paddedA, paddedB);
+  
+  // Return false if lengths differ, but still performed constant-time comparison
+  return bufA.length === bufB.length && equal;
 }
 
 // Helper function to initialize crypto and get JWT tools
@@ -33,6 +40,17 @@ async function getJWTTools() {
   }
   const { SignJWT } = await import('jose');
   return { SignJWT };
+}
+
+// Helper function to initialize crypto and get JWT verify tools
+async function getJWTVerifyTools() {
+  const crypto = await import('node:crypto');
+  if (!globalThis.crypto) {
+    globalThis.crypto = crypto.webcrypto;
+  }
+  const { jwtVerify } = await import('jose');
+  const secret = Buffer.from(process.env.SECRET_TOKEN || 'your-secret-key-here');
+  return { jwtVerify, secret };
 }
 
 // Rate limiting for OTP endpoints (stricter)
@@ -431,13 +449,7 @@ router.post('/validate-token', async (req, res) => {
     }
     
     // Verify JWT token
-    const crypto = await import('node:crypto');
-    if (!globalThis.crypto) {
-      globalThis.crypto = crypto.webcrypto;
-    }
-
-    const { jwtVerify } = await import('jose');
-    const secret = Buffer.from(process.env.SECRET_TOKEN || 'your-secret-key-here');
+    const { jwtVerify, secret } = await getJWTVerifyTools();
     
     try {
       const { payload } = await jwtVerify(token, secret);
@@ -521,14 +533,8 @@ router.post('/refresh-token', async (req, res) => {
     }
     
     // Verify refresh token
-    const crypto = await import('node:crypto');
-    if (!globalThis.crypto) {
-      globalThis.crypto = crypto.webcrypto;
-    }
-
-    const { jwtVerify } = await import('jose');
+    const { jwtVerify, secret } = await getJWTVerifyTools();
     const { SignJWT } = await getJWTTools();
-    const secret = Buffer.from(process.env.SECRET_TOKEN || 'your-secret-key-here');
     
     try {
       const { payload } = await jwtVerify(refreshToken, secret);
