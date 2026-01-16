@@ -173,6 +173,28 @@ GET /api/payments/verify-payment?payment_id=pay_xxx&order_id=order_xxx&razorpay_
 
 ---
 
+## 🚀 Deployment Notes
+
+### Vercel Deployment
+
+When deploying to Vercel, ensure the following environment variables are configured:
+
+**MSG91 Configuration:**
+```env
+MSG91_AUTH_KEY=460639ALxMlUU8Q688c88b6P1
+MSG91_TEMPLATE_ID=688b0b58d6fc05287e15c132
+MSG91_SENDER_ID=DREAM24
+```
+
+**⚠️ Important:** The `MSG91_SENDER_ID` must be set to `DREAM24` (approved sender ID). Using an unapproved sender ID like `BHTTPL` will cause OTP requests to fail.
+
+**Steps to update on Vercel:**
+1. Go to Vercel Dashboard → Project Settings → Environment Variables
+2. Add or update: `MSG91_SENDER_ID=DREAM24`
+3. Redeploy the application for changes to take effect
+
+---
+
 ## 🔐 Security Notes
 
 - Never commit `.env` file
@@ -194,6 +216,7 @@ See `BACKEND_SERVER_SETUP.md` for detailed setup instructions.
 **MSG91 not working:**
 - Check MSG91_AUTH_KEY in .env
 - Verify template ID is correct
+- **Verify Sender ID is approved:** Ensure `MSG91_SENDER_ID=DREAM24` (approved sender ID)
 - Check MSG91 dashboard for API status
 
 **Razorpay not working:**
