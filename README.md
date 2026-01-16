@@ -84,7 +84,8 @@ POST /api/auth/verify-otp
 Body: { "mobileNumber": "9876543210", "otp": "123456", "sessionId": "..." }
 Response: {
   "success": true,
-  "token": "jwt-token-here",
+  "token": "jwt-access-token-here",
+  "refreshToken": "jwt-refresh-token-here",
   "user": {
     "id": "hygraph-user-id",
     "fantasy_user_id": "mongodb-user-id",
@@ -94,6 +95,20 @@ Response: {
     "fantasy_enabled": true
   }
 }
+```
+
+**Validate Token:**
+```bash
+POST /api/auth/validate-token
+Body: { "token": "jwt-token" }
+Response: { "success": true, "valid": true, "user": { ... } }
+```
+
+**Refresh Token:**
+```bash
+POST /api/auth/refresh-token
+Body: { "refreshToken": "refresh-token-here" }
+Response: { "success": true, "token": "new-access-token" }
 ```
 
 **Logout (Unified):**
