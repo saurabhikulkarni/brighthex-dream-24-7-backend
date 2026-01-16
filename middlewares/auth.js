@@ -1,4 +1,5 @@
 const hygraphUserService = require('../services/hygraphUserService');
+const tokenBlacklistService = require('../services/tokenBlacklistService');
 
 /**
  * JWT Authentication Middleware
@@ -36,6 +37,29 @@ const authMiddleware = async (req, res, next) => {
 
     try {
       const { payload } = await jwtVerify(token, secret);
+      
+      // Check if token is blacklisted
+      if (await tokenBlacklistService.isBlacklisted(token)) {
+        return res.status(401).json({ 
+          success: false, 
+          message: 'Token has been revoked' 
+        });
+      }
+      
+      // Check shop module access
+      if (payload.modules && !payload.modules.includes('shop')) {
+        return res.status(403).json({ 
+          success: false, 
+          message: 'Shop module not enabled for this account' 
+        });
+      }
+      
+      if (payload.shop_enabled === false) {
+        return res.status(403).json({ 
+          success: false, 
+          message: 'Shop access disabled' 
+        });
+      }
       
       // Find user by ID from Hygraph
       const user = await hygraphUserService.findUserById(payload.userId);
