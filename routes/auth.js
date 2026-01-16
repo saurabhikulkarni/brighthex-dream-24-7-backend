@@ -2,7 +2,7 @@ const express = require('express');
 const router = express.Router();
 const msg91Service = require('../services/msg91Service');
 const otpService = require('../services/otpService');
-const User = require('../models/User');
+const hygraphUserService = require('../services/hygraphUserService');
 const axios = require('axios');
 
 // Rate limiting for OTP endpoints (stricter)
@@ -109,7 +109,7 @@ router.post('/verify-otp', async (req, res) => {
     }
 
     const cleanNumber = mobileNumber.replace(/\D/g, '');
-
+    
     // Verify OTP
     const verificationResult = await otpService.verifyOtp(cleanNumber, otp, sessionId);
 
@@ -121,64 +121,94 @@ router.post('/verify-otp', async (req, res) => {
       });
     }
 
-    // OTP verified successfully - now create/fetch user
-    let user = await User.findOne({ mobile: parseInt(cleanNumber) });
+    // OTP verified - create/fetch user from Hygraph
+    let user = await hygraphUserService.findUserByMobile(cleanNumber);
     let isNewUser = false;
 
     if (!user) {
-      // Create new user
+      // Create new user in Hygraph
       isNewUser = true;
-      user = new User({
-        mobile: parseInt(cleanNumber),
+      
+      // Generate JWT token first
+      const crypto = await import('node:crypto');
+      if (!globalThis.crypto) {
+        globalThis.crypto = crypto.webcrypto;
+      }
+
+      const { SignJWT } = await import('jose');
+      const secret = Buffer.from(process.env.SECRET_TOKEN || 'your-secret-key-here');
+      
+      // Create user in Hygraph first to get ID
+      const tempUser = await hygraphUserService.createUser({
+        mobile: cleanNumber,
         status: 'activated',
-        lastLogin: new Date(),
         deviceId: deviceId || ''
       });
-      await user.save();
-      console.log(`New user created with ID: ${user._id}`);
+      
+      // Generate token with Hygraph user ID
+      const token = await new SignJWT({ 
+        userId: tempUser.id,
+        mobile: cleanNumber 
+      })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setIssuedAt()
+        .sign(secret);
+      
+      // Update user with auth_key
+      user = await hygraphUserService.updateUser(cleanNumber, {
+        authKey: token,
+        lastLogin: new Date().toISOString()
+      });
+      
+      user.authKey = token;
+      
+      console.log(`New user created in Hygraph with ID: ${user.id}`);
     } else {
       // Update existing user
-      user.lastLogin = new Date();
-      if (deviceId) {
-        user.deviceId = deviceId;
+      const crypto = await import('node:crypto');
+      if (!globalThis.crypto) {
+        globalThis.crypto = crypto.webcrypto;
       }
-      await user.save();
-      console.log(`Existing user logged in: ${user._id}`);
+
+      const { SignJWT } = await import('jose');
+      const secret = Buffer.from(process.env.SECRET_TOKEN || 'your-secret-key-here');
+      
+      const token = await new SignJWT({ 
+        userId: user.id,
+        mobile: cleanNumber 
+      })
+        .setProtectedHeader({ alg: 'HS256' })
+        .setIssuedAt()
+        .sign(secret);
+      
+      user = await hygraphUserService.updateUser(cleanNumber, {
+        authKey: token,
+        deviceId: deviceId || '',
+        lastLogin: new Date().toISOString()
+      });
+      
+      user.authKey = token;
+      
+      console.log(`Existing user logged in from Hygraph: ${user.id}`);
     }
-
-    // Generate JWT token using Jose (same as fantasy app)
-    const crypto = await import('node:crypto');
-    if (!globalThis.crypto) {
-      globalThis.crypto = crypto.webcrypto;
-    }
-
-    const { SignJWT } = await import('jose');
-    const secret = Buffer.from(process.env.SECRET_TOKEN || 'your-secret-key-here');
-    const token = await new SignJWT({ _id: user._id.toString() })
-      .setProtectedHeader({ alg: 'HS256' })
-      .setIssuedAt()
-      .sign(secret);
-
-    // Update user with auth_key
-    user.auth_key = token;
-    await user.save();
 
     // Delete OTP from storage (one-time use)
     if (sessionId) {
       await otpService.deleteOtp(sessionId);
     }
 
-    // Sync with fantasy app backend
+    // Sync with fantasy app backend (Firebase)
     try {
       if (process.env.FANTASY_API_URL) {
-        console.log(`Syncing user ${user._id} with fantasy app...`);
-        const syncResponse = await axios.post(
-          `${process.env.FANTASY_API_URL}/api/user/sync-user-from-shopping`,
+        console.log(`Syncing user ${user.id} with fantasy app...`);
+        await axios.post(
+          `${process.env.FANTASY_API_URL}/api/user/sync-from-shopping`,
           {
-            userId: user._id.toString(),
+            userId: user.id,
             mobile: cleanNumber,
-            auth_key: token,
-            isNewUser: isNewUser
+            isNewUser: isNewUser,
+            fullname: user.fullname || '',
+            email: user.email || ''
           },
           {
             headers: {
@@ -188,10 +218,9 @@ router.post('/verify-otp', async (req, res) => {
             timeout: 5000
           }
         );
-        console.log('Fantasy app sync result:', syncResponse.data);
+        console.log('Fantasy app sync completed');
       }
     } catch (syncError) {
-      // Log error but don't fail the request
       console.error('Failed to sync with fantasy app:', syncError.message);
     }
 
@@ -200,9 +229,9 @@ router.post('/verify-otp', async (req, res) => {
       verified: true,
       message: 'OTP verified successfully',
       user: {
-        userId: user._id.toString(),
+        userId: user.id,
         mobile: user.mobile,
-        auth_key: token,
+        auth_key: user.authKey,
         isNewUser: isNewUser,
         fullname: user.fullname || '',
         email: user.email || '',
@@ -214,7 +243,6 @@ router.post('/verify-otp', async (req, res) => {
     console.error('Error in verify-otp:', error);
     res.status(500).json({
       success: false,
-      verified: false,
       message: 'Internal server error. Please try again later.'
     });
   }
@@ -229,7 +257,7 @@ router.get('/me', require('../middlewares/auth'), async (req, res) => {
     res.json({
       success: true,
       user: {
-        userId: req.user._id.toString(),
+        userId: req.user.id,
         mobile: req.user.mobile,
         fullname: req.user.fullname || '',
         email: req.user.email || '',
@@ -256,8 +284,12 @@ router.put('/profile', require('../middlewares/auth'), async (req, res) => {
   try {
     const { fullname, email } = req.body;
     
-    const user = await User.findById(req.userId);
-    
+    const updateData = {};
+    if (fullname !== undefined) updateData.fullname = fullname;
+    if (email !== undefined) updateData.email = email;
+
+    const user = await hygraphUserService.updateUser(req.user.mobile, updateData);
+
     if (!user) {
       return res.status(404).json({
         success: false,
@@ -265,16 +297,11 @@ router.put('/profile', require('../middlewares/auth'), async (req, res) => {
       });
     }
 
-    if (fullname !== undefined) user.fullname = fullname;
-    if (email !== undefined) user.email = email;
-
-    await user.save();
-
     res.json({
       success: true,
       message: 'Profile updated successfully',
       user: {
-        userId: user._id.toString(),
+        userId: user.id,
         mobile: user.mobile,
         fullname: user.fullname,
         email: user.email,

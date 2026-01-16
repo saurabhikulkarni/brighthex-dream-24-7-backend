@@ -1,4 +1,4 @@
-const User = require('../models/User');
+const hygraphUserService = require('../services/hygraphUserService');
 
 /**
  * JWT Authentication Middleware
@@ -37,8 +37,8 @@ const authMiddleware = async (req, res, next) => {
     try {
       const { payload } = await jwtVerify(token, secret);
       
-      // Find user by ID from token
-      const user = await User.findById(payload._id).select('-__v').lean();
+      // Find user by ID from Hygraph
+      const user = await hygraphUserService.findUserById(payload.userId);
 
       if (!user) {
         return res.status(401).json({
@@ -57,7 +57,7 @@ const authMiddleware = async (req, res, next) => {
 
       // Attach user to request object
       req.user = user;
-      req.userId = user._id.toString();
+      req.userId = user.id;
       
       next();
     } catch (jwtError) {
