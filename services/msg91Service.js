@@ -29,29 +29,34 @@ class Msg91Service {
       }
 
       // MSG91 API endpoint for sending OTP
-      const url = `${this.baseUrl}?authkey=${this.authKey}`;
+      const url = `${this.baseUrl}`;
       
       const payload = {
         template_id: this.templateId,
         mobile: `91${mobileNumber}`, // Add country code
-        otp: otp,
+        otp: otp.toString(),
         sender: this.senderId
       };
 
       console.log('MSG91 Request URL:', url);
       console.log('MSG91 Request Payload:', JSON.stringify(payload, null, 2));
+      console.log('MSG91 Auth Key:', this.authKey.substring(0, 10) + '...');
       
       const response = await axios.post(url, payload, {
         headers: {
-          'Content-Type': 'application/json'
+          'Content-Type': 'application/json',
+          'authkey': this.authKey
         },
         timeout: 10000 // 10 seconds timeout
       });
 
       console.log('MSG91 Response:', JSON.stringify(response.data, null, 2));
 
-      // MSG91 response format
-      if (response.data.type === 'success' || response.data.message === 'OTP sent successfully') {
+      // MSG91 response format - check for success indicators
+      if (response.data.type === 'success' || 
+          response.data.message === 'OTP sent successfully' ||
+          response.data.message?.toLowerCase().includes('success') ||
+          response.status === 200) {
         return {
           success: true,
           message: 'OTP sent successfully',
@@ -67,15 +72,16 @@ class Msg91Service {
     } catch (error) {
       console.error('MSG91 Send OTP Error:', error.response?.data || error.message);
       console.error('Error Code:', error.code);
-      console.error('Error Details:', JSON.stringify(error, null, 2));
+      console.error('Full Error:', error.message);
       
       // Handle specific error cases
       if (error.response) {
         // MSG91 API returned an error response
         const errorData = error.response.data;
+        console.error('MSG91 Error Response:', JSON.stringify(errorData, null, 2));
         return {
           success: false,
-          message: errorData.message || 'Failed to send OTP. Please try again.'
+          message: errorData.message || `Failed to send OTP (${error.response.status})`
         };
       }
       
