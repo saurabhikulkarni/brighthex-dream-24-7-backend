@@ -27,9 +27,12 @@ class Msg91Service {
       // MSG91 API endpoint for sending OTP
       const url = `${this.baseUrl}?authkey=${this.authKey}`;
       
+      // Format the message with OTP
+      const message = `Your OTP for BrightHex Dream is ${otp}. Valid for 10 minutes. Do not share with anyone.`;
+      
       const payload = {
         mobile: `91${mobileNumber}`, // Add country code
-        otp: otp,
+        message: message,
         sender: this.senderId
       };
 
