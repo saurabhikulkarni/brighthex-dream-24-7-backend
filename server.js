@@ -13,54 +13,33 @@ const PORT = process.env.PORT || 3000;
 app.set('trust proxy', true);
 
 // Middleware
-// CORS configuration - allow all origins in development, restrict in production
-const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()).filter(Boolean) || [
-  'http://localhost:3000',
-  'http://localhost:3001',
-  'http://localhost:5000',
-  'http://localhost:8080',
-  'http://127.0.0.1:3000',
-  'http://127.0.0.1:5000',
-  '*' // Allow all in development
-];
-
-console.log('CORS Allowed Origins:', allowedOrigins);
-
-app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) {
-      console.log('No origin header - allowing request');
-      return callback(null, true);
-    }
-    
-    // In development, allow all origins if '*' is set
-    if (allowedOrigins.includes('*') || process.env.NODE_ENV !== 'production') {
-      console.log(`CORS: Allowing origin ${origin} (development mode)`);
-      return callback(null, true);
-    }
-    
-    // Check if origin is allowed
-    if (allowedOrigins.includes(origin)) {
-      console.log(`CORS: Origin ${origin} allowed`);
-      callback(null, true);
-    } else {
-      console.warn(`CORS: Origin ${origin} not allowed`);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
+// CORS configuration - simpler and more reliable
+const corsOptions = {
+  origin: '*', // Allow all origins
+  credentials: false,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'HEAD'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Internal-Secret'],
   exposedHeaders: ['Content-Length', 'X-JSON-Response'],
-  maxAge: 86400 // 24 hours
-}));
+  maxAge: 86400
+};
 
-// Preflight handler for all routes
-app.options('*', cors());
+// Apply CORS to all routes
+app.use(cors(corsOptions));
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Explicit OPTIONS handler for preflight requests
+app.options('*', cors(corsOptions));
+
+// Additional CORS headers middleware (fallback)
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-Internal-Secret');
+  res.header('Access-Control-Expose-Headers', 'Content-Length, X-JSON-Response');
+  next();
+});
+
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Rate limiting
 const limiter = rateLimit({
