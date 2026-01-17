@@ -5,26 +5,23 @@ class HygraphUserService {
   async findUserByMobile(mobile) {
     const query = `
       query GetUserByMobile($mobileNumber: String!) {
-        user(where: { mobileNumber: $mobileNumber }) {
+        userDetail(where: { mobileNumber: $mobileNumber }) {
           id
           mobileNumber
-          fullname
-          email
-          authKey
+          firstName
+          lastName
+          username
           refreshToken
-          status
-          image
-          deviceId
-          lastLogin
-          createdAt
-          updatedAt
+          modules
+          shop_enabled
+          fantasy_enabled
           fantasy_user_id
         }
       }
     `;
     
     const data = await hygraphClient.query(query, { mobileNumber: mobile.toString() });
-    return data.user;
+    return data.userDetail;
   }
 
   // Create new user
@@ -32,30 +29,30 @@ class HygraphUserService {
     const mutation = `
       mutation CreateUser(
         $mobileNumber: String!
-        $authKey: String
-        $deviceId: String
-        $status: String
+        $firstName: String
+        $modules: [String!]!
       ) {
-        createUser(
+        createUserDetail(
           data: {
             mobileNumber: $mobileNumber
-            authKey: $authKey
-            deviceId: $deviceId
-            status: $status
-            lastLogin: "${new Date().toISOString()}"
+            firstName: $firstName
+            modules: $modules
+            shop_enabled: true
+            fantasy_enabled: true
           }
         ) {
           id
           mobileNumber
-          fullname
-          email
-          authKey
-          status
-          image
-          deviceId
-          lastLogin
+          firstName
+          lastName
+          username
+          refreshToken
+          modules
+          shop_enabled
+          fantasy_enabled
+          fantasy_user_id
         }
-        publishUser(where: { mobileNumber: $mobileNumber }) {
+        publishUserDetail(where: { mobileNumber: $mobileNumber }) {
           id
         }
       }
@@ -63,12 +60,11 @@ class HygraphUserService {
     
     const data = await hygraphClient.mutate(mutation, {
       mobileNumber: userData.mobile.toString(),
-      authKey: userData.authKey || '',
-      deviceId: userData.deviceId || '',
-      status: userData.status || 'activated'
+      firstName: userData.firstName || 'User',
+      modules: ['shop', 'fantasy']
     });
     
-    return data.createUser;
+    return data.createUserDetail;
   }
 
   // Update user by mobile
@@ -77,42 +73,32 @@ class HygraphUserService {
     const dataFields = [];
     const variables = { mobileNumber: mobile.toString() };
     
-    if (updateData.authKey !== undefined) {
-      dataFields.push('authKey: $authKey');
-      variables.authKey = updateData.authKey;
-    }
     if (updateData.refreshToken !== undefined) {
       dataFields.push('refreshToken: $refreshToken');
       variables.refreshToken = updateData.refreshToken;
     }
-    if (updateData.deviceId !== undefined) {
-      dataFields.push('deviceId: $deviceId');
-      variables.deviceId = updateData.deviceId;
+    if (updateData.firstName !== undefined) {
+      dataFields.push('firstName: $firstName');
+      variables.firstName = updateData.firstName;
     }
-    if (updateData.fullname !== undefined) {
-      dataFields.push('fullname: $fullname');
-      variables.fullname = updateData.fullname;
+    if (updateData.lastName !== undefined) {
+      dataFields.push('lastName: $lastName');
+      variables.lastName = updateData.lastName;
     }
-    if (updateData.email !== undefined) {
-      dataFields.push('email: $email');
-      variables.email = updateData.email;
-    }
-    if (updateData.lastLogin !== undefined) {
-      dataFields.push('lastLogin: $lastLogin');
-      variables.lastLogin = updateData.lastLogin;
+    if (updateData.fantasy_user_id !== undefined) {
+      dataFields.push('fantasy_user_id: $fantasy_user_id');
+      variables.fantasy_user_id = updateData.fantasy_user_id;
     }
     
     const mutation = `
       mutation UpdateUser(
         $mobileNumber: String!
-        ${updateData.authKey !== undefined ? '$authKey: String' : ''}
         ${updateData.refreshToken !== undefined ? '$refreshToken: String' : ''}
-        ${updateData.deviceId !== undefined ? '$deviceId: String' : ''}
-        ${updateData.fullname !== undefined ? '$fullname: String' : ''}
-        ${updateData.email !== undefined ? '$email: String' : ''}
-        ${updateData.lastLogin !== undefined ? '$lastLogin: DateTime' : ''}
+        ${updateData.firstName !== undefined ? '$firstName: String' : ''}
+        ${updateData.lastName !== undefined ? '$lastName: String' : ''}
+        ${updateData.fantasy_user_id !== undefined ? '$fantasy_user_id: String' : ''}
       ) {
-        updateUser(
+        updateUserDetail(
           where: { mobileNumber: $mobileNumber }
           data: {
             ${dataFields.join('\n            ')}
@@ -120,20 +106,22 @@ class HygraphUserService {
         ) {
           id
           mobileNumber
-          fullname
-          email
-          authKey
+          firstName
+          lastName
+          username
           refreshToken
-          status
+          modules
+          shop_enabled
+          fantasy_enabled
         }
-        publishUser(where: { mobileNumber: $mobileNumber }) {
+        publishUserDetail(where: { mobileNumber: $mobileNumber }) {
           id
         }
       }
     `;
     
     const data = await hygraphClient.mutate(mutation, variables);
-    return data.updateUser;
+    return data.updateUserDetail;
   }
 
   // Update user by ID (for fantasy_user_id and module fields)
@@ -202,18 +190,20 @@ class HygraphUserService {
           authKey
           refreshToken
           status
-          image
-          deviceId
-          lastLogin
-          createdAt
+          imDetail(where: { id: $id }) {
+          id
+          mobileNumber
+          firstName
+          lastName
+          username
+          refreshToken
+          modules
+          shop_enabled
+          fantasy_enabled
           fantasy_user_id
         }
       }
     `;
     
     const data = await hygraphClient.query(query, { id: userId });
-    return data.user;
-  }
-}
-
-module.exports = new HygraphUserService();
+    return data.userDetail

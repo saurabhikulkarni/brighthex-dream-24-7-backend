@@ -266,10 +266,8 @@ router.post('/verify-otp', async (req, res) => {
     
     // Update user with both tokens and last login
     user = await hygraphUserService.updateUser(cleanNumber, {
-      authKey: accessToken,
       refreshToken: refreshToken,
-      deviceId: deviceId || '',
-      lastLogin: new Date().toISOString()
+      fantasy_user_id: fantasyUserId
     });
     
     user.authKey = accessToken;
@@ -291,9 +289,10 @@ router.post('/verify-otp', async (req, res) => {
         userId: user.id,
         fantasy_user_id: fantasyUserId,
         mobileNumber: user.mobileNumber,
-        email: user.email || '',
-        name: user.fullname || '',
-        modules: ['shop', 'fantasy'],
+        firstName: user.firstName || '',
+        lastName: user.lastName || '',
+        username: user.username || '',
+        modules: user.modules || ['shop', 'fantasy'],
         shop_enabled: true,
         fantasy_enabled: true,
         isNewUser: isNewUser
