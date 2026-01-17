@@ -14,19 +14,35 @@ app.set('trust proxy', true);
 
 // Middleware
 // CORS configuration - allow all origins in development, restrict in production
-const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()).filter(Boolean) || ['*'];
+const allowedOrigins = process.env.ALLOWED_ORIGINS?.split(',').map(o => o.trim()).filter(Boolean) || [
+  'http://localhost:3000',
+  'http://localhost:3001',
+  'http://localhost:5000',
+  'http://localhost:8080',
+  'http://127.0.0.1:3000',
+  'http://127.0.0.1:5000',
+  '*' // Allow all in development
+];
+
+console.log('CORS Allowed Origins:', allowedOrigins);
+
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (like mobile apps or curl requests)
-    if (!origin) return callback(null, true);
+    if (!origin) {
+      console.log('No origin header - allowing request');
+      return callback(null, true);
+    }
     
     // In development, allow all origins if '*' is set
     if (allowedOrigins.includes('*') || process.env.NODE_ENV !== 'production') {
+      console.log(`CORS: Allowing origin ${origin} (development mode)`);
       return callback(null, true);
     }
     
     // Check if origin is allowed
     if (allowedOrigins.includes(origin)) {
+      console.log(`CORS: Origin ${origin} allowed`);
       callback(null, true);
     } else {
       console.warn(`CORS: Origin ${origin} not allowed`);
@@ -34,9 +50,15 @@ app.use(cors({
     }
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'HEAD'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Internal-Secret'],
+  exposedHeaders: ['Content-Length', 'X-JSON-Response'],
+  maxAge: 86400 // 24 hours
 }));
+
+// Preflight handler for all routes
+app.options('*', cors());
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -54,7 +76,23 @@ app.get('/health', (req, res) => {
   res.json({ status: 'ok', timestamp: new Date().toISOString() });
 });
 
-// Routes
+// Health check endpoint
+app.get('/', (req, res) => {
+  res.json({
+    success: true,
+    message: 'BrightHex Shop Backend is running',
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development'
+  });
+});
+
+app.get('/health', (req, res) => {
+  res.json({
+    success: true,
+    status: 'healthy',
+    timestamp: new Date().toISOString()
+  });
+});
 const authRoutes = require('./routes/auth');
 const paymentRoutes = require('./routes/payments');
 const shiprocketRoutes = require('./routes/shiprocket');
@@ -63,13 +101,35 @@ app.use('/api/auth', authRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/shiprocket', shiprocketRoutes);
 
+// 404 handler
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: 'Endpoint not found',
+    path: req.path,
+    method: req.method
+  });
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Error:', err);
+  
+  // CORS error
+  if (err.message === 'Not allowed by CORS') {
+    return res.status(403).json({
+      success: false,
+      message: 'CORS: Origin not allowed',
+      origin: req.get('origin')
+    });
+  }
+  
   res.status(err.status || 500).json({
     success: false,
     message: err.message || 'Internal server error',
     ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
+  });
+});
   });
 });
 
