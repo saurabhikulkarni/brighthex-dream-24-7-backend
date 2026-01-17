@@ -4,10 +4,10 @@ class HygraphUserService {
   // Find user by mobile number
   async findUserByMobile(mobile) {
     const query = `
-      query GetUserByMobile($mobile: String!) {
-        user(where: { mobile: $mobile }) {
+      query GetUserByMobile($mobileNumber: String!) {
+        user(where: { mobileNumber: $mobileNumber }) {
           id
-          mobile
+          mobileNumber
           fullname
           email
           authKey
@@ -23,7 +23,7 @@ class HygraphUserService {
       }
     `;
     
-    const data = await hygraphClient.query(query, { mobile: mobile.toString() });
+    const data = await hygraphClient.query(query, { mobileNumber: mobile.toString() });
     return data.user;
   }
 
@@ -31,14 +31,14 @@ class HygraphUserService {
   async createUser(userData) {
     const mutation = `
       mutation CreateUser(
-        $mobile: String!
+        $mobileNumber: String!
         $authKey: String
         $deviceId: String
         $status: String
       ) {
         createUser(
           data: {
-            mobile: $mobile
+            mobileNumber: $mobileNumber
             authKey: $authKey
             deviceId: $deviceId
             status: $status
@@ -46,7 +46,7 @@ class HygraphUserService {
           }
         ) {
           id
-          mobile
+          mobileNumber
           fullname
           email
           authKey
@@ -55,14 +55,14 @@ class HygraphUserService {
           deviceId
           lastLogin
         }
-        publishUser(where: { mobile: $mobile }) {
+        publishUser(where: { mobileNumber: $mobileNumber }) {
           id
         }
       }
     `;
     
     const data = await hygraphClient.mutate(mutation, {
-      mobile: userData.mobile.toString(),
+      mobileNumber: userData.mobile.toString(),
       authKey: userData.authKey || '',
       deviceId: userData.deviceId || '',
       status: userData.status || 'activated'
@@ -75,7 +75,7 @@ class HygraphUserService {
   async updateUser(mobile, updateData) {
     // Build data fields dynamically
     const dataFields = [];
-    const variables = { mobile: mobile.toString() };
+    const variables = { mobileNumber: mobile.toString() };
     
     if (updateData.authKey !== undefined) {
       dataFields.push('authKey: $authKey');
@@ -104,7 +104,7 @@ class HygraphUserService {
     
     const mutation = `
       mutation UpdateUser(
-        $mobile: String!
+        $mobileNumber: String!
         ${updateData.authKey !== undefined ? '$authKey: String' : ''}
         ${updateData.refreshToken !== undefined ? '$refreshToken: String' : ''}
         ${updateData.deviceId !== undefined ? '$deviceId: String' : ''}
@@ -113,20 +113,20 @@ class HygraphUserService {
         ${updateData.lastLogin !== undefined ? '$lastLogin: DateTime' : ''}
       ) {
         updateUser(
-          where: { mobile: $mobile }
+          where: { mobileNumber: $mobileNumber }
           data: {
             ${dataFields.join('\n            ')}
           }
         ) {
           id
-          mobile
+          mobileNumber
           fullname
           email
           authKey
           refreshToken
           status
         }
-        publishUser(where: { mobile: $mobile }) {
+        publishUser(where: { mobileNumber: $mobileNumber }) {
           id
         }
       }
@@ -196,7 +196,7 @@ class HygraphUserService {
       query GetUserById($id: ID!) {
         user(where: { id: $id }) {
           id
-          mobile
+          mobileNumber
           fullname
           email
           authKey

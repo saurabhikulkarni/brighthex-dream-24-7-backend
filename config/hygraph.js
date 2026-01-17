@@ -19,12 +19,18 @@ const hygraphClient = {
       );
       
       if (response.data.errors) {
-        console.error('Hygraph errors:', response.data.errors);
+        console.error('Hygraph GraphQL errors:', JSON.stringify(response.data.errors, null, 2));
+        console.error('Full response:', JSON.stringify(response.data, null, 2));
         throw new Error(response.data.errors[0].message);
       }
       
       return response.data.data;
     } catch (error) {
+      // Check if this is an axios error with response data
+      if (error.response && error.response.data && error.response.data.errors) {
+        console.error('Hygraph API errors:', JSON.stringify(error.response.data.errors, null, 2));
+        console.error('Status code:', error.response.status);
+      }
       console.error('Hygraph request failed:', error.message);
       throw error;
     }

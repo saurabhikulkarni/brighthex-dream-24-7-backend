@@ -28,12 +28,9 @@ class Msg91Service {
       const url = `${this.baseUrl}?authkey=${this.authKey}`;
       
       const payload = {
-        template_id: this.templateId,
         mobile: `91${mobileNumber}`, // Add country code
         otp: otp,
-        sender: this.senderId,
-        otp_length: 6,
-        otp_expiry: 10 // OTP expires in 10 minutes
+        sender: this.senderId
       };
 
       console.log('MSG91 Request URL:', url);

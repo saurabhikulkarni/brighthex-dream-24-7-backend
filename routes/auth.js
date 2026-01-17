@@ -180,8 +180,23 @@ router.post('/verify-otp', async (req, res) => {
       
       user = tempUser;
       
+      if (!user || !user.id) {
+        console.error('Failed to create user in Hygraph - no ID returned');
+        return res.status(500).json({
+          success: false,
+          message: 'Failed to create user account. Please try again.'
+        });
+      }
+      
       console.log(`New user created in Hygraph with ID: ${user.id}`);
     } else {
+      if (!user.id) {
+        console.error('User found but has no ID');
+        return res.status(500).json({
+          success: false,
+          message: 'User data is invalid. Please try again.'
+        });
+      }
       console.log(`Existing user logged in from Hygraph: ${user.id}`);
     }
 
@@ -269,12 +284,13 @@ router.post('/verify-otp', async (req, res) => {
       success: true,
       verified: true,
       message: 'Login successful',
-      token: user.authKey,
+      userId: user.id,
+      authToken: user.authKey,
       refreshToken: user.refreshToken,
       user: {
-        id: user.id,
+        userId: user.id,
         fantasy_user_id: fantasyUserId,
-        mobile: user.mobile,
+        mobileNumber: user.mobileNumber,
         email: user.email || '',
         name: user.fullname || '',
         modules: ['shop', 'fantasy'],
