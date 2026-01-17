@@ -24,15 +24,16 @@ class Msg91Service {
         throw new Error('MSG91_AUTH_KEY not configured');
       }
 
+      if (!this.templateId) {
+        throw new Error('MSG91_TEMPLATE_ID not configured');
+      }
+
       // MSG91 API endpoint for sending OTP
       const url = `${this.baseUrl}?authkey=${this.authKey}`;
       
-      // MSG91 expects #OTP# placeholder in message
-      const message = `Your OTP for BrightHex Dream is #OTP#. Valid for 10 minutes. Do not share with anyone.`;
-      
       const payload = {
+        template_id: this.templateId,
         mobile: `91${mobileNumber}`, // Add country code
-        message: message,
         otp: otp,
         sender: this.senderId
       };
