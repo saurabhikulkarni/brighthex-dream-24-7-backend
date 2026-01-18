@@ -13,9 +13,6 @@ class HygraphUserService {
           username
           refreshToken
           modules
-          shop_enabled
-          fantasy_enabled
-          fantasy_user_id
         }
       }
     `;
@@ -182,15 +179,7 @@ class HygraphUserService {
   async findUserById(userId) {
     const query = `
       query GetUserById($id: ID!) {
-        user(where: { id: $id }) {
-          id
-          mobileNumber
-          fullname
-          email
-          authKey
-          refreshToken
-          status
-          imDetail(where: { id: $id }) {
+        userDetail(where: { id: $id }) {
           id
           mobileNumber
           firstName
@@ -198,9 +187,6 @@ class HygraphUserService {
           username
           refreshToken
           modules
-          shop_enabled
-          fantasy_enabled
-          fantasy_user_id
         }
       }
     `;

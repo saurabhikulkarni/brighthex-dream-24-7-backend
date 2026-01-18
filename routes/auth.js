@@ -72,11 +72,23 @@ router.post('/send-otp', otpLimiter, async (req, res) => {
       });
     }
 
+    // Debug logging
+    console.log('📞 Raw mobile number received:', mobileNumber, 'Type:', typeof mobileNumber);
+    
     // Validate mobile number format (Indian format)
     const phoneRegex = /^[6-9]\d{9}$/;
-    const cleanNumber = mobileNumber.replace(/\D/g, ''); // Remove non-digits
+    const cleanNumber = mobileNumber.replace(/\D/g, '').trim(); // Remove non-digits and whitespace
+    
+    console.log('📞 Clean mobile number:', cleanNumber, 'Length:', cleanNumber.length);
+    console.log('📞 Regex test result:', phoneRegex.test(cleanNumber));
     
     if (cleanNumber.length !== 10 || !phoneRegex.test(cleanNumber)) {
+      console.error('❌ Mobile number validation failed:', {
+        original: mobileNumber,
+        clean: cleanNumber,
+        length: cleanNumber.length,
+        startsWithValidDigit: /^[6-9]/.test(cleanNumber)
+      });
       return res.status(400).json({
         success: false,
         message: 'Invalid mobile number. Please enter a valid 10-digit Indian mobile number.'
