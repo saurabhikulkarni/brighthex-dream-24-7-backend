@@ -13,14 +13,41 @@ const PORT = process.env.PORT || 3000;
 app.set('trust proxy', true);
 
 // Middleware
-// CORS configuration - simpler and more reliable
+// CORS configuration with support for development and production
+const allowedOrigins = [
+  'http://localhost:3000',           // Local development
+  'http://localhost:59030',          // Flutter web development
+  'http://localhost:8080',           // Alternative local dev
+  'http://127.0.0.1:59030',          // Localhost loopback
+  'http://127.0.0.1:3000',           // Localhost loopback
+  'https://brighthex-dream-24-7.vercel.app',        // Production frontend
+  'https://brighthex-dream-24-7-psi.vercel.app',    // Production frontend (alternative)
+  'https://localhost:59030',         // HTTPS localhost
+];
+
 const corsOptions = {
-  origin: '*', // Allow all origins
-  credentials: false,
+  origin: function (origin, callback) {
+    // Allow requests with no origin (e.g., Postman, mobile apps, curl requests)
+    if (!origin) {
+      return callback(null, true);
+    }
+
+    if (allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else if (process.env.NODE_ENV === 'development') {
+      // In development, allow any origin for easier testing
+      console.warn(`[CORS] Access from origin: ${origin}`);
+      callback(null, true);
+    } else {
+      callback(new Error(`CORS policy: Origin ${origin} not allowed`));
+    }
+  },
+  credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS', 'PATCH', 'HEAD'],
   allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'X-Internal-Secret'],
   exposedHeaders: ['Content-Length', 'X-JSON-Response'],
-  maxAge: 86400
+  maxAge: 86400,
+  optionsSuccessStatus: 200 // Some legacy browsers (IE11) choke on 204
 };
 
 // Apply CORS to all routes
@@ -29,12 +56,16 @@ app.use(cors(corsOptions));
 // Explicit OPTIONS handler for preflight requests
 app.options('*', cors(corsOptions));
 
-// Additional CORS headers middleware (fallback)
+// Additional CORS headers middleware (redundant but helps with some clients)
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-Internal-Secret');
-  res.header('Access-Control-Expose-Headers', 'Content-Length, X-JSON-Response');
+  const origin = req.get('origin');
+  if (!origin || allowedOrigins.includes(origin) || process.env.NODE_ENV === 'development') {
+    res.header('Access-Control-Allow-Origin', origin || '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH, HEAD');
+    res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, X-Internal-Secret');
+    res.header('Access-Control-Allow-Credentials', 'true');
+    res.header('Access-Control-Expose-Headers', 'Content-Length, X-JSON-Response');
+  }
   next();
 });
 
