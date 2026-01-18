@@ -13,6 +13,8 @@ class HygraphUserService {
           username
           refreshToken
           modules
+          shopEnabled
+          fantasyEnabled
         }
       }
     `;
@@ -33,6 +35,8 @@ class HygraphUserService {
             username
             refreshToken
             modules
+            shopEnabled
+            fantasyEnabled
           }
         }
       `;
@@ -50,12 +54,16 @@ class HygraphUserService {
         $mobileNumber: String!
         $firstName: String
         $modules: [String!]!
+        $shopEnabled: Boolean!
+        $fantasyEnabled: Boolean!
       ) {
         createUserDetail(
           data: {
             mobileNumber: $mobileNumber
             firstName: $firstName
             modules: $modules
+            shopEnabled: $shopEnabled
+            fantasyEnabled: $fantasyEnabled
           }
         ) {
           id
@@ -65,6 +73,8 @@ class HygraphUserService {
           username
           refreshToken
           modules
+          shopEnabled
+          fantasyEnabled
         }
         publishUserDetail(where: { id: $createdId }) {
           id
@@ -76,7 +86,9 @@ class HygraphUserService {
       const data = await hygraphClient.mutate(mutation, {
         mobileNumber: userData.mobile.toString(),
         firstName: userData.firstName || 'User',
-        modules: userData.modules || ['shop']
+        modules: userData.modules || ['shop'],
+        shopEnabled: true,
+        fantasyEnabled: false
       });
       
       return data.createUserDetail;
@@ -87,7 +99,9 @@ class HygraphUserService {
         id: null,
         mobileNumber: userData.mobile.toString(),
         firstName: userData.firstName || 'User',
-        modules: userData.modules || ['shop']
+        modules: userData.modules || ['shop'],
+        shopEnabled: true,
+        fantasyEnabled: false
       };
     }
   }
@@ -215,6 +229,8 @@ class HygraphUserService {
           username
           refreshToken
           modules
+          shopEnabled
+          fantasyEnabled
         }
       }
     `;
