@@ -147,11 +147,8 @@ class HygraphUserService {
           username
           refreshToken
           modules
-          shop_enabled
-          fantasy_enabled
-        }
-        publishUserDetail(where: { mobileNumber: $mobileNumber }) {
-          id
+          shopEnabled
+          fantasyEnabled
         }
       }
     `;
