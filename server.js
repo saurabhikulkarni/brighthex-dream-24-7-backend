@@ -140,8 +140,6 @@ app.use((err, req, res, next) => {
     ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
   });
 });
-  });
-});
 
 // 404 handler
 app.use((req, res) => {

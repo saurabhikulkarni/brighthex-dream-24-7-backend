@@ -206,4 +206,8 @@ class HygraphUserService {
     `;
     
     const data = await hygraphClient.query(query, { id: userId });
-    return data.userDetail
+    return data.userDetail;
+  }
+}
+
+module.exports = new HygraphUserService();
