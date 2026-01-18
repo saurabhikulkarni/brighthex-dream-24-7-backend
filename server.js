@@ -113,10 +113,12 @@ app.get('/health', (req, res) => {
 const authRoutes = require('./routes/auth');
 const paymentRoutes = require('./routes/payments');
 const shiprocketRoutes = require('./routes/shiprocket');
+const walletRoutes = require('./routes/wallet');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/shiprocket', shiprocketRoutes);
+app.use('/api/wallet', walletRoutes);
 
 // 404 handler
 app.use((req, res) => {

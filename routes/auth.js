@@ -287,6 +287,12 @@ router.post('/verify-otp', async (req, res) => {
     user.authKey = accessToken;
     user.refreshToken = refreshToken;
 
+    // Fetch latest user data with shopTokens from Hygraph
+    const userWithTokens = await hygraphUserService.findUserById(user.id);
+    const shopTokens = userWithTokens?.shopTokens || 0;
+    
+    console.log(`✅ User login successful - hygraph_user_id: ${user.id}, shopTokens: ${shopTokens}`);
+
     // Delete OTP from storage (one-time use)
     if (sessionId) {
       await otpService.deleteOtp(sessionId);
@@ -301,6 +307,7 @@ router.post('/verify-otp', async (req, res) => {
       refreshToken: user.refreshToken,
       user: {
         userId: user.id,
+        hygraph_user_id: user.id,
         fantasy_user_id: fantasyUserId,
         mobileNumber: user.mobileNumber,
         firstName: user.firstName || '',
@@ -309,6 +316,7 @@ router.post('/verify-otp', async (req, res) => {
         modules: user.modules || ['shop', 'fantasy'],
         shop_enabled: true,
         fantasy_enabled: true,
+        shopTokens: shopTokens,
         isNewUser: isNewUser
       }
     });
@@ -500,7 +508,9 @@ router.post('/validate-token', async (req, res) => {
         });
       }
       
-      // Token is valid
+      // Token is valid - include current shopTokens balance
+      const shopTokens = user.shopTokens || 0;
+      console.log(`📱 Token validated for user: ${user.id}, shopTokens: ${shopTokens}`);
       return res.json({
         success: true,
         valid: true,
@@ -514,6 +524,7 @@ router.post('/validate-token', async (req, res) => {
           modules: payload.modules || ['shop', 'fantasy'],
           shop_enabled: payload.shop_enabled !== false,
           fantasy_enabled: payload.fantasy_enabled !== false,
+          shopTokens: shopTokens,
           expiresAt: new Date(payload.exp * 1000).toISOString()
         }
       });
@@ -609,6 +620,10 @@ router.post('/refresh-token', async (req, res) => {
         authKey: newAccessToken
       });
       
+      // Fetch latest shopTokens balance
+      const shopTokens = user.shopTokens || 0;
+      console.log(`💰 Token refreshed for user: ${user.id}, shopTokens: ${shopTokens}`);
+      
       res.json({
         success: true,
         message: 'Token refreshed successfully',
@@ -621,7 +636,8 @@ router.post('/refresh-token', async (req, res) => {
           name: user.fullname || '',
           modules: ['shop', 'fantasy'],
           shop_enabled: true,
-          fantasy_enabled: true
+          fantasy_enabled: true,
+          shopTokens: shopTokens
         }
       });
     } catch (jwtError) {

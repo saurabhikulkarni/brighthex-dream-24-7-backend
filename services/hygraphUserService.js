@@ -228,6 +228,8 @@ class HygraphUserService {
           modules
           shopEnabled
           fantasyEnabled
+          shopTokens
+          fantasyUserId
         }
       }
     `;
