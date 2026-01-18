@@ -125,8 +125,8 @@ class HygraphUserService {
       variables.lastName = updateData.lastName;
     }
     if (updateData.fantasy_user_id !== undefined) {
-      dataFields.push('fantasy_user_id: $fantasy_user_id');
-      variables.fantasy_user_id = updateData.fantasy_user_id;
+      dataFields.push('fantasyUserId: $fantasyUserId');
+      variables.fantasyUserId = updateData.fantasy_user_id;
     }
     
     const mutation = `
@@ -135,7 +135,7 @@ class HygraphUserService {
         ${updateData.refreshToken !== undefined ? '$refreshToken: String' : ''}
         ${updateData.firstName !== undefined ? '$firstName: String' : ''}
         ${updateData.lastName !== undefined ? '$lastName: String' : ''}
-        ${updateData.fantasy_user_id !== undefined ? '$fantasy_user_id: String' : ''}
+        ${updateData.fantasy_user_id !== undefined ? '$fantasyUserId: String' : ''}
       ) {
         updateUserDetail(
           where: { mobileNumber: $mobileNumber }
