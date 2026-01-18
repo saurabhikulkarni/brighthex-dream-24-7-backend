@@ -76,9 +76,6 @@ class HygraphUserService {
           shopEnabled
           fantasyEnabled
         }
-        publishUserDetail(where: { id: $createdId }) {
-          id
-        }
       }
     `;
     
