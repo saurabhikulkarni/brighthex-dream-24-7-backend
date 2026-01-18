@@ -10,7 +10,8 @@ const app = express();
 const PORT = process.env.PORT || 3000;
 
 // Trust proxy - required when behind a proxy/load balancer (AWS Lambda, API Gateway, etc.)
-app.set('trust proxy', true);
+// Note: Disabled for local development due to express-rate-limit conflicts
+// app.set('trust proxy', true);
 
 // Middleware
 // CORS configuration with support for development and production

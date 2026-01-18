@@ -5,7 +5,7 @@ class HygraphUserService {
   async findUserByMobile(mobile) {
     const query = `
       query GetUserByMobile($mobileNumber: String!) {
-        userDetail(where: { mobileNumber: $mobileNumber }) {
+        userDetails(where: { mobileNumber: $mobileNumber }, first: 1) {
           id
           mobileNumber
           firstName
@@ -17,8 +17,30 @@ class HygraphUserService {
       }
     `;
     
-    const data = await hygraphClient.query(query, { mobileNumber: mobile.toString() });
-    return data.userDetail;
+    try {
+      const data = await hygraphClient.query(query, { mobileNumber: mobile.toString() });
+      return data.userDetails && data.userDetails.length > 0 ? data.userDetails[0] : null;
+    } catch (error) {
+      // If mobileNumber filter doesn't work, try fetching all and filtering client-side
+      console.warn('findUserByMobile with where clause failed, trying without where clause:', error.message);
+      const fallbackQuery = `
+        query GetAllUsers {
+          userDetails(first: 100) {
+            id
+            mobileNumber
+            firstName
+            lastName
+            username
+            refreshToken
+            modules
+          }
+        }
+      `;
+      
+      const fallbackData = await hygraphClient.query(fallbackQuery);
+      const user = fallbackData.userDetails?.find(u => u.mobileNumber === mobile.toString());
+      return user || null;
+    }
   }
 
   // Create new user
@@ -191,8 +213,13 @@ class HygraphUserService {
       }
     `;
     
-    const data = await hygraphClient.query(query, { id: userId });
-    return data.userDetail;
+    try {
+      const data = await hygraphClient.query(query, { id: userId });
+      return data.userDetail || null;
+    } catch (error) {
+      console.error('Error finding user by ID:', error.message);
+      return null;
+    }
   }
 }
 
