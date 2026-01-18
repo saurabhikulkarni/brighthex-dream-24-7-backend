@@ -93,16 +93,23 @@ class HygraphUserService {
       
       return data.createUserDetail;
     } catch (error) {
-      console.error('Error creating user:', error.message);
-      // Return a minimal user object to allow login to proceed
-      return {
-        id: null,
-        mobileNumber: userData.mobile.toString(),
-        firstName: userData.firstName || 'User',
-        modules: userData.modules || ['shop'],
-        shopEnabled: true,
-        fantasyEnabled: false
-      };
+      console.error('❌ HYGRAPH USER CREATION FAILED:', {
+        errorMessage: error.message,
+        statusCode: error.response?.status,
+        hygraphErrors: error.response?.data?.errors,
+        endpoint: process.env.HYGRAPH_ENDPOINT,
+        hasToken: !!process.env.HYGRAPH_TOKEN,
+        userData: {
+          mobile: userData.mobile,
+          firstName: userData.firstName,
+          lastName: userData.lastName,
+          modules: userData.modules
+        }
+      });
+      
+      // Throw error instead of silently failing
+      const errorMsg = error.response?.data?.errors?.[0]?.message || error.message;
+      throw new Error(`Hygraph user creation failed: ${errorMsg}`);
     }
   }
 

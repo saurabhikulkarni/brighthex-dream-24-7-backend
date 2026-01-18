@@ -183,26 +183,39 @@ router.post('/verify-otp', async (req, res) => {
       // Create new user in Hygraph
       isNewUser = true;
       
-      // Create user in Hygraph first to get ID
-      const tempUser = await hygraphUserService.createUser({
-        mobile: cleanNumber,
-        firstName: req.body.firstName || 'User',
-        lastName: req.body.lastName || '',
-        status: 'activated',
-        deviceId: deviceId || ''
-      });
-      
-      user = tempUser;
-      
-      if (!user || !user.id) {
-        console.error('Failed to create user in Hygraph - no ID returned');
+      try {
+        // Create user in Hygraph first to get ID
+        const tempUser = await hygraphUserService.createUser({
+          mobile: cleanNumber,
+          firstName: req.body.firstName || 'User',
+          lastName: req.body.lastName || '',
+          modules: ['shop'],
+          shopEnabled: true,
+          fantasyEnabled: false
+        });
+        
+        user = tempUser;
+        
+        if (!user || !user.id) {
+          console.error('❌ Failed to create user in Hygraph - no ID returned');
+          return res.status(500).json({
+            success: false,
+            message: 'Failed to create user account in database. Please try again.'
+          });
+        }
+        
+        console.log(`✅ New user created in Hygraph with ID: ${user.id}`);
+      } catch (hygraphError) {
+        console.error('❌ Hygraph user creation error:', {
+          message: hygraphError.message,
+          mobile: cleanNumber,
+          firstName: req.body.firstName
+        });
         return res.status(500).json({
           success: false,
-          message: 'Failed to create user account. Please try again.'
+          message: `Failed to create user: ${hygraphError.message}`
         });
       }
-      
-      console.log(`New user created in Hygraph with ID: ${user.id}`);
     } else {
       if (!user.id) {
         console.error('User found but has no ID');
