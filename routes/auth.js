@@ -186,6 +186,8 @@ router.post('/verify-otp', async (req, res) => {
       // Create user in Hygraph first to get ID
       const tempUser = await hygraphUserService.createUser({
         mobile: cleanNumber,
+        firstName: req.body.firstName || 'User',
+        lastName: req.body.lastName || '',
         status: 'activated',
         deviceId: deviceId || ''
       });

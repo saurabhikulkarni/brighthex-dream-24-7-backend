@@ -53,6 +53,7 @@ class HygraphUserService {
       mutation CreateUser(
         $mobileNumber: String!
         $firstName: String
+        $lastName: String
         $modules: [String!]!
         $shopEnabled: Boolean!
         $fantasyEnabled: Boolean!
@@ -61,6 +62,7 @@ class HygraphUserService {
           data: {
             mobileNumber: $mobileNumber
             firstName: $firstName
+            lastName: $lastName
             modules: $modules
             shopEnabled: $shopEnabled
             fantasyEnabled: $fantasyEnabled
@@ -83,6 +85,7 @@ class HygraphUserService {
       const data = await hygraphClient.mutate(mutation, {
         mobileNumber: userData.mobile.toString(),
         firstName: userData.firstName || 'User',
+        lastName: userData.lastName || '',
         modules: userData.modules || ['shop'],
         shopEnabled: true,
         fantasyEnabled: false
@@ -167,13 +170,13 @@ class HygraphUserService {
       dataFields.push('fantasy_user_id: $fantasy_user_id');
       variables.fantasy_user_id = updateData.fantasy_user_id;
     }
-    if (updateData.shop_enabled !== undefined) {
-      dataFields.push('shop_enabled: $shop_enabled');
-      variables.shop_enabled = updateData.shop_enabled;
+    if (updateData.shopEnabled !== undefined) {
+      dataFields.push('shopEnabled: $shopEnabled');
+      variables.shopEnabled = updateData.shopEnabled;
     }
-    if (updateData.fantasy_enabled !== undefined) {
-      dataFields.push('fantasy_enabled: $fantasy_enabled');
-      variables.fantasy_enabled = updateData.fantasy_enabled;
+    if (updateData.fantasyEnabled !== undefined) {
+      dataFields.push('fantasyEnabled: $fantasyEnabled');
+      variables.fantasyEnabled = updateData.fantasyEnabled;
     }
     if (updateData.modules !== undefined) {
       dataFields.push('modules: $modules');
@@ -184,31 +187,31 @@ class HygraphUserService {
       mutation UpdateUserById(
         $id: ID!
         ${updateData.fantasy_user_id !== undefined ? '$fantasy_user_id: String' : ''}
-        ${updateData.shop_enabled !== undefined ? '$shop_enabled: Boolean' : ''}
-        ${updateData.fantasy_enabled !== undefined ? '$fantasy_enabled: Boolean' : ''}
+        ${updateData.shopEnabled !== undefined ? '$shopEnabled: Boolean' : ''}
+        ${updateData.fantasyEnabled !== undefined ? '$fantasyEnabled: Boolean' : ''}
         ${updateData.modules !== undefined ? '$modules: [String!]' : ''}
       ) {
-        updateUser(
+        updateUserDetail(
           where: { id: $id }
           data: {
             ${dataFields.join('\n            ')}
           }
         ) {
           id
-          mobile
-          fullname
-          email
-          authKey
-          status
-        }
-        publishUser(where: { id: $id }) {
-          id
+          mobileNumber
+          firstName
+          lastName
+          username
+          refreshToken
+          modules
+          shopEnabled
+          fantasyEnabled
         }
       }
     `;
     
     const data = await hygraphClient.mutate(mutation, variables);
-    return data.updateUser;
+    return data.updateUserDetail;
   }
 
   // Find user by ID
