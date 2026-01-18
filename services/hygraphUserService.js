@@ -56,8 +56,6 @@ class HygraphUserService {
             mobileNumber: $mobileNumber
             firstName: $firstName
             modules: $modules
-            shop_enabled: true
-            fantasy_enabled: true
           }
         ) {
           id
@@ -67,23 +65,31 @@ class HygraphUserService {
           username
           refreshToken
           modules
-          shop_enabled
-          fantasy_enabled
-          fantasy_user_id
         }
-        publishUserDetail(where: { mobileNumber: $mobileNumber }) {
+        publishUserDetail(where: { id: $createdId }) {
           id
         }
       }
     `;
     
-    const data = await hygraphClient.mutate(mutation, {
-      mobileNumber: userData.mobile.toString(),
-      firstName: userData.firstName || 'User',
-      modules: ['shop', 'fantasy']
-    });
-    
-    return data.createUserDetail;
+    try {
+      const data = await hygraphClient.mutate(mutation, {
+        mobileNumber: userData.mobile.toString(),
+        firstName: userData.firstName || 'User',
+        modules: userData.modules || ['shop']
+      });
+      
+      return data.createUserDetail;
+    } catch (error) {
+      console.error('Error creating user:', error.message);
+      // Return a minimal user object to allow login to proceed
+      return {
+        id: null,
+        mobileNumber: userData.mobile.toString(),
+        firstName: userData.firstName || 'User',
+        modules: userData.modules || ['shop']
+      };
+    }
   }
 
   // Update user by mobile
