@@ -15,6 +15,8 @@ class HygraphUserService {
           modules
           shopEnabled
           fantasyEnabled
+          fantasyUserId
+          shopTokens
         }
       }
     `;
@@ -37,6 +39,8 @@ class HygraphUserService {
             modules
             shopEnabled
             fantasyEnabled
+            fantasyUserId
+            shopTokens
           }
         }
       `;
@@ -77,6 +81,8 @@ class HygraphUserService {
           modules
           shopEnabled
           fantasyEnabled
+          fantasyUserId
+          shopTokens
         }
       }
     `;
@@ -159,6 +165,8 @@ class HygraphUserService {
           modules
           shopEnabled
           fantasyEnabled
+          fantasyUserId
+          shopTokens
         }
       }
     `;
@@ -167,15 +175,15 @@ class HygraphUserService {
     return data.updateUserDetail;
   }
 
-  // Update user by ID (for fantasy_user_id and module fields)
+  // Update user by ID (for fantasyUserId and module fields)
   async updateUserById(userId, updateData) {
     // Build data fields dynamically
     const dataFields = [];
     const variables = { id: userId };
     
     if (updateData.fantasy_user_id !== undefined) {
-      dataFields.push('fantasy_user_id: $fantasy_user_id');
-      variables.fantasy_user_id = updateData.fantasy_user_id;
+      dataFields.push('fantasyUserId: $fantasyUserId');
+      variables.fantasyUserId = updateData.fantasy_user_id;
     }
     if (updateData.shopEnabled !== undefined) {
       dataFields.push('shopEnabled: $shopEnabled');
@@ -193,7 +201,7 @@ class HygraphUserService {
     const mutation = `
       mutation UpdateUserById(
         $id: ID!
-        ${updateData.fantasy_user_id !== undefined ? '$fantasy_user_id: String' : ''}
+        ${updateData.fantasy_user_id !== undefined ? '$fantasyUserId: String' : ''}
         ${updateData.shopEnabled !== undefined ? '$shopEnabled: Boolean' : ''}
         ${updateData.fantasyEnabled !== undefined ? '$fantasyEnabled: Boolean' : ''}
         ${updateData.modules !== undefined ? '$modules: [String!]' : ''}
@@ -213,6 +221,7 @@ class HygraphUserService {
           modules
           shopEnabled
           fantasyEnabled
+          fantasyUserId
         }
       }
     `;

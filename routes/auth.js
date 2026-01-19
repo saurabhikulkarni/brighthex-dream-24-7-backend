@@ -227,8 +227,8 @@ router.post('/verify-otp', async (req, res) => {
       console.log(`Existing user logged in from Hygraph: ${user.id}`);
     }
 
-    // Sync with Fantasy backend to get fantasy_user_id
-    let fantasyUserId = user.fantasy_user_id || null;
+    // Sync with Fantasy backend to get fantasyUserId
+    let fantasyUserId = user.fantasyUserId || null;
     try {
       if (process.env.FANTASY_API_URL && process.env.INTERNAL_API_SECRET) {
         console.log(`Syncing user ${user.id} with fantasy backend...`);
@@ -438,7 +438,7 @@ router.post('/logout', require('../middlewares/auth'), async (req, res) => {
     });
     
     // 4. Invalidate in fantasy backend
-    const fantasyUserId = user.fantasy_user_id || null;
+    const fantasyUserId = user.fantasyUserId || null;
     if (fantasyUserId && process.env.FANTASY_API_URL && process.env.INTERNAL_API_SECRET) {
       try {
         await axios.post(
