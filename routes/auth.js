@@ -227,13 +227,15 @@ router.post('/verify-otp', async (req, res) => {
       console.log(`Existing user logged in from Hygraph: ${user.id}`);
     }
 
-    // Sync with Fantasy backend to get fantasyUserId
+    // Login/Sync with Fantasy backend to get fantasyUserId and tokens
     let fantasyUserId = user.fantasyUserId || null;
+    let fantasyAuthKey = null;
+    let fantasyRefreshToken = null;
     try {
-      if (process.env.FANTASY_API_URL && process.env.INTERNAL_API_SECRET) {
-        console.log(`Syncing user ${user.id} with fantasy backend...`);
+      if (process.env.FANTASY_API_URL) {
+        console.log(`Logging in user ${user.id} to fantasy backend...`);
         const fantasyResponse = await axios.post(
-          `${process.env.FANTASY_API_URL}/api/user/internal/sync-user`,
+          `${process.env.FANTASY_API_URL}/api/user/login`,
           {
             mobile_number: cleanNumber,
             hygraph_user_id: user.id,
@@ -242,41 +244,49 @@ router.post('/verify-otp', async (req, res) => {
             username: user.username || '',
             name: `${user.firstName || 'User'} ${user.lastName || ''}`.trim(),
             shopTokens: user.shopTokens || 0,
-            wallet_balance: user.walletBalance || 0,
-            shop_enabled: true,
-            fantasy_enabled: true
+            wallet_balance: user.walletBalance || 0
           },
           {
             headers: { 
-              'Content-Type': 'application/json',
-              'x-internal-secret': process.env.INTERNAL_API_SECRET 
+              'Content-Type': 'application/json'
             },
             timeout: 10000
           }
         );
         
-        console.log('Fantasy sync response:', JSON.stringify(fantasyResponse.data, null, 2));
+        console.log('Fantasy login response:', JSON.stringify(fantasyResponse.data, null, 2));
         
-        // Update Hygraph user with fantasy_user_id
-        if (fantasyResponse.data && fantasyResponse.data.success && fantasyResponse.data.user_id) {
-          await hygraphUserService.updateUserById(user.id, { 
-            fantasy_user_id: fantasyResponse.data.user_id 
-          });
-          fantasyUserId = fantasyResponse.data.user_id;
-          console.log(`✅ Fantasy sync completed - fantasy_user_id: ${fantasyUserId}`);
-        } else {
-          console.warn('⚠️ Fantasy sync response missing user_id:', fantasyResponse.data);
+        // Extract Fantasy tokens and user_id from response
+        if (fantasyResponse.data) {
+          const fantasyData = fantasyResponse.data;
+          
+          // Get user_id (could be in different fields)
+          fantasyUserId = fantasyData.user_id || fantasyData.userId || fantasyData._id || fantasyData.user?._id;
+          
+          // Get Fantasy JWT tokens
+          fantasyAuthKey = fantasyData.auth_key || fantasyData.authKey || fantasyData.token || fantasyData.access_token;
+          fantasyRefreshToken = fantasyData.refresh_token || fantasyData.refreshToken;
+          
+          if (fantasyUserId) {
+            // Update Hygraph user with fantasy_user_id
+            await hygraphUserService.updateUserById(user.id, { 
+              fantasy_user_id: fantasyUserId 
+            });
+            console.log(`✅ Fantasy login completed - fantasy_user_id: ${fantasyUserId}`);
+          } else {
+            console.warn('⚠️ Fantasy login response missing user_id:', fantasyData);
+          }
         }
       } else {
-        console.warn('⚠️ Fantasy sync skipped - FANTASY_API_URL or INTERNAL_API_SECRET not configured');
+        console.warn('⚠️ Fantasy login skipped - FANTASY_API_URL not configured');
       }
     } catch (syncError) {
-      console.error('❌ Fantasy sync failed:', {
+      console.error('❌ Fantasy login failed:', {
         message: syncError.message,
         response: syncError.response?.data,
         status: syncError.response?.status
       });
-      // Continue even if fantasy sync fails - user can still use shop
+      // Continue even if fantasy login fails - user can still use shop
     }
 
     // Generate unified JWT token with module information
@@ -335,6 +345,9 @@ router.post('/verify-otp', async (req, res) => {
       userId: user.id,
       authToken: user.authKey,
       refreshToken: user.refreshToken,
+      // Fantasy tokens for Fantasy app authentication
+      fantasy_auth_key: fantasyAuthKey,
+      fantasy_refresh_token: fantasyRefreshToken,
       user: {
         userId: user.id,
         hygraph_user_id: user.id,
