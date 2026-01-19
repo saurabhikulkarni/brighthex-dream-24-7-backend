@@ -235,18 +235,27 @@ router.post('/verify-otp', async (req, res) => {
         const fantasyResponse = await axios.post(
           `${process.env.FANTASY_API_URL}/api/user/internal/sync-user`,
           {
-            mobile: cleanNumber,
+            mobile_number: cleanNumber,
             hygraph_user_id: user.id,
+            first_name: user.firstName || req.body.firstName || 'User',
+            last_name: user.lastName || req.body.lastName || '',
+            username: user.username || '',
+            name: `${user.firstName || 'User'} ${user.lastName || ''}`.trim(),
+            shopTokens: user.shopTokens || 0,
+            wallet_balance: user.walletBalance || 0,
             shop_enabled: true,
             fantasy_enabled: true
           },
           {
             headers: { 
-              'X-Internal-Secret': process.env.INTERNAL_API_SECRET 
+              'Content-Type': 'application/json',
+              'x-internal-secret': process.env.INTERNAL_API_SECRET 
             },
-            timeout: 5000
+            timeout: 10000
           }
         );
+        
+        console.log('Fantasy sync response:', JSON.stringify(fantasyResponse.data, null, 2));
         
         // Update Hygraph user with fantasy_user_id
         if (fantasyResponse.data && fantasyResponse.data.success && fantasyResponse.data.user_id) {
@@ -254,11 +263,19 @@ router.post('/verify-otp', async (req, res) => {
             fantasy_user_id: fantasyResponse.data.user_id 
           });
           fantasyUserId = fantasyResponse.data.user_id;
-          console.log('Fantasy sync completed successfully');
+          console.log(`✅ Fantasy sync completed - fantasy_user_id: ${fantasyUserId}`);
+        } else {
+          console.warn('⚠️ Fantasy sync response missing user_id:', fantasyResponse.data);
         }
+      } else {
+        console.warn('⚠️ Fantasy sync skipped - FANTASY_API_URL or INTERNAL_API_SECRET not configured');
       }
     } catch (syncError) {
-      console.error('Fantasy sync failed:', syncError.message);
+      console.error('❌ Fantasy sync failed:', {
+        message: syncError.message,
+        response: syncError.response?.data,
+        status: syncError.response?.status
+      });
       // Continue even if fantasy sync fails - user can still use shop
     }
 
