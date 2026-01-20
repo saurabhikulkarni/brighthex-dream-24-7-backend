@@ -278,14 +278,14 @@ router.post('/verify-otp', async (req, res) => {
           console.log('Fantasy direct-add-user response:', JSON.stringify(fantasyResponse.data, null, 2));
           
           // Extract Fantasy tokens and user_id from response
-          // Response format: { status: true, message: "...", data: { token, auth_key, userid, mobile } }
-          if (fantasyResponse?.data && fantasyResponse?.data?.userid) {
-            const fantasyData = fantasyResponse.data;
+          // Response format: { success: true, message: "...", data: { token, auth_key, userid, mobile, type } }
+          if (fantasyResponse.data?.success === true && fantasyResponse.data?.data) {
+            const fantasyData = fantasyResponse.data.data;
             
             // Get user_id from response
             fantasyUserId = fantasyData.userid || fantasyData.user_id || fantasyData.userId || fantasyData._id;
             
-            // Get Fantasy JWT tokens
+            // Get Fantasy JWT tokens - both token and auth_key are provided, use auth_key as primary
             fantasyAuthKey = fantasyData.auth_key || fantasyData.token;
             fantasyRefreshToken = fantasyData.refresh_token || fantasyData.refreshToken;
             
@@ -294,14 +294,14 @@ router.post('/verify-otp', async (req, res) => {
               await hygraphUserService.updateUserById(user.id, { 
                 fantasy_user_id: fantasyUserId.toString()
               });
-              console.log(`✅ Fantasy user sync completed - fantasy_user_id: ${fantasyUserId}`);
+              console.log(`✅ Fantasy user sync completed - fantasy_user_id: ${fantasyUserId}, auth_key: ${fantasyAuthKey?.substring(0, 20)}...`);
             } else {
               console.warn('⚠️ Fantasy response missing userid:', fantasyResponse.data);
               fantasyLoginError = 'Fantasy response missing userid';
             }
             
             if (!fantasyAuthKey) {
-              console.warn('⚠️ Fantasy response missing auth_key - Fantasy app may not work');
+              console.warn('⚠️ Fantasy response missing auth_key/token - Fantasy app may not work');
               fantasyLoginError = fantasyLoginError || 'Fantasy response missing auth_key';
             }
           } else {
