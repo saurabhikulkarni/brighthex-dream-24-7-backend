@@ -279,8 +279,8 @@ router.post('/verify-otp', async (req, res) => {
           
           // Extract Fantasy tokens and user_id from response
           // Response format: { status: true, message: "...", data: { token, auth_key, userid, mobile } }
-          if (fantasyResponse.data && fantasyResponse.data.status) {
-            const fantasyData = fantasyResponse.data.data;
+          if (fantasyResponse?.data && fantasyResponse?.data?.userid) {
+            const fantasyData = fantasyResponse.data;
             
             // Get user_id from response
             fantasyUserId = fantasyData.userid || fantasyData.user_id || fantasyData.userId || fantasyData._id;
