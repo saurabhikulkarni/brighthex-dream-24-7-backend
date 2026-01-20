@@ -3,10 +3,41 @@ const axios = require('axios');
 const HYGRAPH_ENDPOINT = process.env.HYGRAPH_ENDPOINT;
 const HYGRAPH_TOKEN = process.env.HYGRAPH_TOKEN; // Mutation token
 
+// Validate configuration on startup
+if (!HYGRAPH_ENDPOINT) {
+  console.error('❌ CRITICAL: HYGRAPH_ENDPOINT not configured in .env');
+  console.error('   User creation will FAIL until this is fixed.');
+} else if (HYGRAPH_ENDPOINT.includes('.cdn.')) {
+  console.error('❌ CRITICAL: Using CDN endpoint which is READ-ONLY!');
+  console.error('   Current: ' + HYGRAPH_ENDPOINT);
+  console.error('   Required: Use api- endpoint for mutations (user creation)');
+  console.error('   Example: https://api-ap-south-1.hygraph.com/v2/{PROJECT_ID}/master');
+  console.error('   User creation will FAIL until this is fixed.');
+} else {
+  console.log('✅ Hygraph endpoint configured:', HYGRAPH_ENDPOINT);
+}
+
+if (!HYGRAPH_TOKEN) {
+  console.error('❌ CRITICAL: HYGRAPH_TOKEN not configured in .env');
+  console.error('   Mutations (create/update/delete) will FAIL without a token.');
+  console.error('   Get token from: Hygraph Dashboard → Settings → API Access → Permanent Auth Tokens');
+} else {
+  console.log('✅ Hygraph token configured');
+}
+
 // GraphQL client for Hygraph
 const hygraphClient = {
   async query(query, variables = {}) {
     try {
+      // Pre-flight validation
+      if (!HYGRAPH_ENDPOINT) {
+        throw new Error('HYGRAPH_ENDPOINT not configured. Set it in .env file.');
+      }
+      
+      if (HYGRAPH_ENDPOINT.includes('.cdn.') && query.trim().toLowerCase().startsWith('mutation')) {
+        throw new Error('Cannot run mutations on CDN endpoint. Use api- endpoint instead.');
+      }
+
       const response = await axios.post(
         HYGRAPH_ENDPOINT,
         { query, variables },
@@ -37,6 +68,15 @@ const hygraphClient = {
   },
 
   async mutate(mutation, variables = {}) {
+    // Additional validation for mutations
+    if (!HYGRAPH_TOKEN) {
+      throw new Error('HYGRAPH_TOKEN is required for mutations. Set it in .env file.');
+    }
+    
+    if (HYGRAPH_ENDPOINT && HYGRAPH_ENDPOINT.includes('.cdn.')) {
+      throw new Error('CDN endpoint does not support mutations. Use api- endpoint: https://api-ap-south-1.hygraph.com/v2/{PROJECT_ID}/master');
+    }
+    
     return this.query(mutation, variables);
   }
 };

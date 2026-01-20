@@ -23,6 +23,8 @@ const allowedOrigins = [
   'http://127.0.0.1:3000',           // Localhost loopback
   'https://brighthex-dream-24-7.vercel.app',        // Production frontend
   'https://brighthex-dream-24-7-psi.vercel.app',    // Production frontend (alternative)
+  'https://brighthex-dream-24-7-backend-psi.vercel.app', // Shop Backend (for internal calls)
+  'http://134.209.158.211',          // Fantasy Backend
   'https://localhost:59030',         // HTTPS localhost
 ];
 
