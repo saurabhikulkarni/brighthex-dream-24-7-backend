@@ -6,7 +6,7 @@ class Msg91Service {
     this.templateId = process.env.MSG91_TEMPLATE_ID;
     this.senderId = process.env.MSG91_SENDER_ID || 'DREAM24';
     this.baseUrl = 'https://control.msg91.com/api/v5/otp';
-    
+
     if (!this.authKey) {
       console.warn('⚠️  MSG91_AUTH_KEY not found in environment variables');
     }
@@ -30,18 +30,20 @@ class Msg91Service {
 
       // MSG91 API endpoint for sending OTP
       const url = `${this.baseUrl}`;
-      
+
       const payload = {
         template_id: this.templateId,
         mobile: `91${mobileNumber}`, // Add country code
         otp: otp.toString(),
-        sender: this.senderId
+        sender: this.senderId,
+        otp_expiry: 8600,
+        realTimeResponse: 1
       };
 
       console.log('MSG91 Request URL:', url);
       console.log('MSG91 Request Payload:', JSON.stringify(payload, null, 2));
       console.log('MSG91 Auth Key:', this.authKey.substring(0, 10) + '...');
-      
+
       const response = await axios.post(url, payload, {
         headers: {
           'Content-Type': 'application/json',
@@ -53,10 +55,10 @@ class Msg91Service {
       console.log('MSG91 Response:', JSON.stringify(response.data, null, 2));
 
       // MSG91 response format - check for success indicators
-      if (response.data.type === 'success' || 
-          response.data.message === 'OTP sent successfully' ||
-          response.data.message?.toLowerCase().includes('success') ||
-          response.status === 200) {
+      if (response.data.type === 'success' ||
+        response.data.message === 'OTP sent successfully' ||
+        response.data.message?.toLowerCase().includes('success') ||
+        response.status === 200) {
         return {
           success: true,
           message: 'OTP sent successfully',
@@ -73,7 +75,7 @@ class Msg91Service {
       console.error('MSG91 Send OTP Error:', error.response?.data || error.message);
       console.error('Error Code:', error.code);
       console.error('Full Error:', error.message);
-      
+
       // Handle specific error cases
       if (error.response) {
         // MSG91 API returned an error response
@@ -84,7 +86,7 @@ class Msg91Service {
           message: errorData.message || `Failed to send OTP (${error.response.status})`
         };
       }
-      
+
       // Network level errors (timeout, connection refused, etc.)
       if (error.code === 'ECONNABORTED' || error.code === 'ETIMEDOUT') {
         return {
@@ -92,14 +94,14 @@ class Msg91Service {
           message: 'Request timeout. MSG91 service is taking too long to respond. Please try again.'
         };
       }
-      
+
       if (error.code === 'ECONNREFUSED' || error.code === 'ENOTFOUND') {
         return {
           success: false,
           message: 'Cannot connect to MSG91 service. Please check your internet connection.'
         };
       }
-      
+
       return {
         success: false,
         message: `Network error: ${error.message || 'Please check your connection and try again.'}`
@@ -120,7 +122,7 @@ class Msg91Service {
       }
 
       const url = `${this.baseUrl}/verify?authkey=${this.authKey}&mobile=91${mobileNumber}&otp=${otp}`;
-      
+
       const response = await axios.get(url, {
         timeout: 10000
       });
