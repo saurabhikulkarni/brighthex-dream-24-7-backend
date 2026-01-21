@@ -7,25 +7,6 @@ const tokenBlacklistService = require('../services/tokenBlacklistService');
 const axios = require('axios');
 const crypto = require('crypto');
 
-// Helper function to perform constant-time string comparison
-function constantTimeCompare(a, b) {
-  if (typeof a !== 'string' || typeof b !== 'string') {
-    return false;
-  }
-  
-  // Use Node.js built-in constant-time comparison
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  
-  // Check length equality first (this is acceptable as lengths are not secret)
-  if (bufA.length !== bufB.length) {
-    return false;
-  }
-  
-  // Perform constant-time comparison
-  return crypto.timingSafeEqual(bufA, bufB);
-}
-
 // Helper function to initialize crypto and get JWT tools
 async function getJWTTools() {
   const crypto = await import('node:crypto');
@@ -231,7 +212,6 @@ router.post('/verify-otp', async (req, res) => {
     // Using /user/direct-add-user endpoint for better Shop compatibility
     let fantasyUserId = user.fantasyUserId || null;
     let fantasyAuthKey = null;
-    let fantasyRefreshToken = null;
     let fantasyLoginError = null;
     try {
       if (process.env.FANTASY_API_URL) {
@@ -285,9 +265,8 @@ router.post('/verify-otp', async (req, res) => {
             // Get user_id from response
             fantasyUserId = fantasyData.userid || fantasyData.user_id || fantasyData.userId || fantasyData._id;
             
-            // Get Fantasy JWT tokens - both token and auth_key are provided, use auth_key as primary
+            // Get Fantasy JWT token - auth_key is primary
             fantasyAuthKey = fantasyData.auth_key || fantasyData.token;
-            fantasyRefreshToken = fantasyData.refresh_token || fantasyData.refreshToken;
             
             if (fantasyUserId) {
               // Update Hygraph user with fantasy_user_id
@@ -329,7 +308,7 @@ router.post('/verify-otp', async (req, res) => {
     const { SignJWT } = await getJWTTools();
     const secret = Buffer.from(process.env.SECRET_TOKEN || 'your-secret-key-here');
     
-    // Generate short-lived access token (15 minutes)
+    // Generate long-lived access token (30 days)
     const accessToken = await new SignJWT({
       userId: user.id,
       _id: fantasyUserId || user.id, // For compatibility with fantasy backend
@@ -339,29 +318,16 @@ router.post('/verify-otp', async (req, res) => {
       fantasy_enabled: true
     })
       .setProtectedHeader({ alg: 'HS256' })
-      .setExpirationTime('15m')  // Short-lived for security
+      .setExpirationTime('30d')  // Long-lived token
       .setIssuedAt()
       .sign(secret);
     
-    // Generate long-lived refresh token (30 days)
-    const refreshToken = await new SignJWT({
-      userId: user.id,
-      type: 'refresh',
-      mobile: cleanNumber
-    })
-      .setProtectedHeader({ alg: 'HS256' })
-      .setExpirationTime('30d')  // Long-lived
-      .setIssuedAt()
-      .sign(secret);
-    
-    // Update user with both tokens and last login
+    // Update user with fantasy_user_id
     user = await hygraphUserService.updateUser(cleanNumber, {
-      refreshToken: refreshToken,
       fantasy_user_id: fantasyUserId
     });
     
     user.authKey = accessToken;
-    user.refreshToken = refreshToken;
 
     // Fetch latest user data with shopTokens from Hygraph
     const userWithTokens = await hygraphUserService.findUserById(user.id);
@@ -380,10 +346,8 @@ router.post('/verify-otp', async (req, res) => {
       message: 'Login successful',
       userId: user.id,
       authToken: user.authKey,
-      refreshToken: user.refreshToken,
-      // Fantasy tokens for Fantasy app authentication
+      // Fantasy token for Fantasy app authentication
       fantasy_auth_key: fantasyAuthKey,
-      fantasy_refresh_token: fantasyRefreshToken,
       // Fantasy sync status - helps frontend know if Fantasy features will work
       fantasy_sync_status: fantasyAuthKey ? 'success' : 'failed',
       fantasy_sync_error: fantasyLoginError,
@@ -495,18 +459,12 @@ router.post('/logout', require('../middlewares/auth'), async (req, res) => {
     // 1. Blacklist access token in shop backend
     await tokenBlacklistService.addToBlacklist(token);
     
-    // 2. Blacklist refresh token if it exists (critical security step)
-    if (user.refreshToken) {
-      await tokenBlacklistService.addToBlacklist(user.refreshToken);
-    }
-    
-    // 3. Clear both tokens in Hygraph
+    // 2. Clear auth token in Hygraph
     await hygraphUserService.updateUser(user.mobile, {
-      authKey: '',
-      refreshToken: ''
+      authKey: ''
     });
     
-    // 4. Invalidate in fantasy backend
+    // 3. Invalidate in fantasy backend
     const fantasyUserId = user.fantasyUserId || null;
     if (fantasyUserId && process.env.FANTASY_API_URL && process.env.INTERNAL_API_SECRET) {
       try {
@@ -621,117 +579,6 @@ router.post('/validate-token', async (req, res) => {
     }
   } catch (error) {
     console.error('Error in validate-token:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Internal server error'
-    });
-  }
-});
-
-/**
- * POST /api/auth/refresh-token
- * Generate new access token using refresh token
- */
-router.post('/refresh-token', async (req, res) => {
-  try {
-    const { refreshToken } = req.body;
-    
-    if (!refreshToken) {
-      return res.status(400).json({
-        success: false,
-        message: 'Refresh token is required'
-      });
-    }
-    
-    // Verify refresh token
-    const { jwtVerify, secret } = await getJWTVerifyTools();
-    const { SignJWT } = await getJWTTools();
-    
-    try {
-      const { payload } = await jwtVerify(refreshToken, secret);
-      
-      // Ensure it's a refresh token
-      if (payload.type !== 'refresh') {
-        return res.status(401).json({
-          success: false,
-          message: 'Invalid refresh token type'
-        });
-      }
-      
-      // Get user from Hygraph
-      const user = await hygraphUserService.findUserById(payload.userId);
-      
-      if (!user) {
-        return res.status(401).json({
-          success: false,
-          message: 'User not found'
-        });
-      }
-      
-      if (user.status === 'blocked') {
-        return res.status(401).json({
-          success: false,
-          message: 'User is blocked'
-        });
-      }
-      
-      // Verify stored refresh token matches using constant-time comparison
-      if (!user.refreshToken || !constantTimeCompare(user.refreshToken, refreshToken)) {
-        return res.status(401).json({
-          success: false,
-          message: 'Refresh token has been revoked. Please login again.'
-        });
-      }
-      
-      // Generate new access token
-      const newAccessToken = await new SignJWT({
-        userId: user.id,
-        _id: user.fantasy_user_id || user.id, // Fallback to user.id if fantasy_user_id is not set
-        mobile: user.mobile,
-        modules: ['shop', 'fantasy'],
-        shop_enabled: true,
-        fantasy_enabled: true
-      })
-        .setProtectedHeader({ alg: 'HS256' })
-        .setExpirationTime('15m')
-        .setIssuedAt()
-        .sign(secret);
-      
-      // Update user's access token
-      await hygraphUserService.updateUser(user.mobile, {
-        authKey: newAccessToken
-      });
-      
-      // Fetch latest shopTokens balance
-      const shopTokens = user.shopTokens || 0;
-      console.log(`💰 Token refreshed for user: ${user.id}, shopTokens: ${shopTokens}`);
-      
-      res.json({
-        success: true,
-        message: 'Token refreshed successfully',
-        token: newAccessToken,
-        user: {
-          id: user.id,
-          fantasy_user_id: user.fantasy_user_id,
-          mobile: user.mobile,
-          email: user.email || '',
-          name: user.fullname || '',
-          modules: ['shop', 'fantasy'],
-          shop_enabled: true,
-          fantasy_enabled: true,
-          shopTokens: shopTokens
-        }
-      });
-    } catch (jwtError) {
-      console.error('Refresh Token Error:', jwtError.message);
-      return res.status(401).json({
-        success: false,
-        message: 'Invalid or expired refresh token. Please login again.',
-        error: jwtError.message
-      });
-    }
-  } catch (error) {
-    console.error('Error in refresh-token:', error);
     res.status(500).json({
       success: false,
       message: 'Internal server error'

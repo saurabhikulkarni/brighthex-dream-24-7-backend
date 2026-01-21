@@ -11,7 +11,6 @@ class HygraphUserService {
           firstName
           lastName
           username
-          refreshToken
           modules
           shopEnabled
           fantasyEnabled
@@ -35,7 +34,6 @@ class HygraphUserService {
             firstName
             lastName
             username
-            refreshToken
             modules
             shopEnabled
             fantasyEnabled
@@ -77,7 +75,6 @@ class HygraphUserService {
           firstName
           lastName
           username
-          refreshToken
           modules
           shopEnabled
           fantasyEnabled
@@ -125,10 +122,6 @@ class HygraphUserService {
     const dataFields = [];
     const variables = { mobileNumber: mobile.toString() };
     
-    if (updateData.refreshToken !== undefined) {
-      dataFields.push('refreshToken: $refreshToken');
-      variables.refreshToken = updateData.refreshToken;
-    }
     if (updateData.firstName !== undefined) {
       dataFields.push('firstName: $firstName');
       variables.firstName = updateData.firstName;
@@ -145,7 +138,6 @@ class HygraphUserService {
     const mutation = `
       mutation UpdateUser(
         $mobileNumber: String!
-        ${updateData.refreshToken !== undefined ? '$refreshToken: String' : ''}
         ${updateData.firstName !== undefined ? '$firstName: String' : ''}
         ${updateData.lastName !== undefined ? '$lastName: String' : ''}
         ${updateData.fantasy_user_id !== undefined ? '$fantasyUserId: String' : ''}
@@ -161,7 +153,6 @@ class HygraphUserService {
           firstName
           lastName
           username
-          refreshToken
           modules
           shopEnabled
           fantasyEnabled
@@ -217,7 +208,6 @@ class HygraphUserService {
           firstName
           lastName
           username
-          refreshToken
           modules
           shopEnabled
           fantasyEnabled
@@ -240,7 +230,6 @@ class HygraphUserService {
           firstName
           lastName
           username
-          refreshToken
           modules
           shopEnabled
           fantasyEnabled
