@@ -4,8 +4,9 @@ class Msg91Service {
   constructor() {
     this.authKey = process.env.MSG91_AUTH_KEY;
     this.templateId = process.env.MSG91_TEMPLATE_ID;
-    this.senderId = process.env.MSG91_SENDER_ID || 'DREAM24';
-    this.baseUrl = 'https://control.msg91.com/api/v5/otp';
+    this.senderId = process.env.MSG91_SENDER_ID || 'BHTTPL';
+    // Use Flow API (Send SMS) instead of OTP API to send custom OTP values
+    this.baseUrl = 'https://control.msg91.com/api/v5/flow';
     
     if (!this.authKey) {
       console.warn('⚠️  MSG91_AUTH_KEY not found in environment variables');
@@ -13,7 +14,7 @@ class Msg91Service {
   }
 
   /**
-   * Send OTP via MSG91
+   * Send OTP via MSG91 Flow API (allows custom OTP values)
    * @param {string} mobileNumber - 10-digit mobile number
    * @param {string} otp - 6-digit OTP
    * @returns {Promise<{success: boolean, message: string}>}
@@ -28,18 +29,22 @@ class Msg91Service {
         throw new Error('MSG91_TEMPLATE_ID not configured');
       }
 
-      // MSG91 API endpoint for sending OTP
-      const url = `${this.baseUrl}`;
+      // MSG91 Flow API endpoint - allows sending custom OTP in template
+      const url = this.baseUrl;
       
+      // Flow API payload format
+      // The variable name must match your template: ##OTP## -> use "OTP" as key
       const payload = {
         template_id: this.templateId,
-        mobile: `91${mobileNumber}`, // Add country code
-        otp: otp.toString(),
-        sender: this.senderId
+        sender: this.senderId,
+        short_url: "0",
+        mobiles: `91${mobileNumber}`,
+        // Variable replacement: ##OTP## in template gets replaced with this value
+        OTP: otp.toString()
       };
 
-      console.log('MSG91 Request URL:', url);
-      console.log('MSG91 Request Payload:', JSON.stringify(payload, null, 2));
+      console.log('MSG91 Flow API Request URL:', url);
+      console.log('MSG91 Flow API Request Payload:', JSON.stringify(payload, null, 2));
       console.log('MSG91 Auth Key:', this.authKey.substring(0, 10) + '...');
       
       const response = await axios.post(url, payload, {
@@ -103,46 +108,6 @@ class Msg91Service {
       return {
         success: false,
         message: `Network error: ${error.message || 'Please check your connection and try again.'}`
-      };
-    }
-  }
-
-  /**
-   * Verify OTP via MSG91 (optional - we handle verification locally)
-   * @param {string} mobileNumber - 10-digit mobile number
-   * @param {string} otp - 6-digit OTP
-   * @returns {Promise<{success: boolean, verified: boolean}>}
-   */
-  async verifyOtp(mobileNumber, otp) {
-    try {
-      if (!this.authKey) {
-        throw new Error('MSG91_AUTH_KEY not configured');
-      }
-
-      const url = `${this.baseUrl}/verify?authkey=${this.authKey}&mobile=91${mobileNumber}&otp=${otp}`;
-      
-      const response = await axios.get(url, {
-        timeout: 10000
-      });
-
-      if (response.data.type === 'success') {
-        return {
-          success: true,
-          verified: true
-        };
-      } else {
-        return {
-          success: false,
-          verified: false,
-          message: response.data.message || 'Invalid OTP'
-        };
-      }
-    } catch (error) {
-      console.error('MSG91 Verify OTP Error:', error.response?.data || error.message);
-      return {
-        success: false,
-        verified: false,
-        message: 'Failed to verify OTP'
       };
     }
   }
