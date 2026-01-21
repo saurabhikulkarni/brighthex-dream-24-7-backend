@@ -21,31 +21,58 @@ class HygraphUserService {
     `;
     
     try {
+      console.log(`🔍 Finding user by mobile: ${mobile}`);
       const data = await hygraphClient.query(query, { mobileNumber: mobile.toString() });
-      return data.userDetails && data.userDetails.length > 0 ? data.userDetails[0] : null;
+      
+      if (data.userDetails && data.userDetails.length > 0) {
+        console.log(`✅ User found in Hygraph: ${data.userDetails[0].id}`);
+        return data.userDetails[0];
+      }
+      
+      console.log(`📭 No user found with mobile: ${mobile}`);
+      return null;
     } catch (error) {
       // If mobileNumber filter doesn't work, try fetching all and filtering client-side
-      console.warn('findUserByMobile with where clause failed, trying without where clause:', error.message);
-      const fallbackQuery = `
-        query GetAllUsers {
-          userDetails(first: 100) {
-            id
-            mobileNumber
-            firstName
-            lastName
-            username
-            modules
-            shopEnabled
-            fantasyEnabled
-            fantasyUserId
-            shopTokens
-          }
-        }
-      `;
+      console.warn('⚠️ findUserByMobile with where clause failed, trying fallback:', error.message);
       
-      const fallbackData = await hygraphClient.query(fallbackQuery);
-      const user = fallbackData.userDetails?.find(u => u.mobileNumber === mobile.toString());
-      return user || null;
+      try {
+        const fallbackQuery = `
+          query GetAllUsers {
+            userDetails(first: 500) {
+              id
+              mobileNumber
+              firstName
+              lastName
+              username
+              modules
+              shopEnabled
+              fantasyEnabled
+              fantasyUserId
+              shopTokens
+            }
+          }
+        `;
+        
+        const fallbackData = await hygraphClient.query(fallbackQuery);
+        const user = fallbackData.userDetails?.find(u => u.mobileNumber === mobile.toString());
+        
+        if (user) {
+          console.log(`✅ User found via fallback: ${user.id}`);
+          return user;
+        }
+        
+        console.log(`📭 No user found via fallback for mobile: ${mobile}`);
+        return null;
+      } catch (fallbackError) {
+        // Fallback also failed - log but DON'T throw
+        // Return null so verify-otp will try to create user
+        console.error('❌ Both findUserByMobile queries failed:', {
+          primaryError: error.message,
+          fallbackError: fallbackError.message
+        });
+        // Return null - let the caller decide what to do
+        return null;
+      }
     }
   }
 

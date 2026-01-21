@@ -156,12 +156,18 @@ router.post('/verify-otp', async (req, res) => {
       });
     }
 
-    // OTP verified - create/fetch user from Hygraph
+    // OTP verified - fetch user from Hygraph first
+    console.log(`🔍 Looking up user in Hygraph for mobile: ${cleanNumber}`);
     let user = await hygraphUserService.findUserByMobile(cleanNumber);
     let isNewUser = false;
 
-    if (!user) {
-      // Create new user in Hygraph
+    if (user && user.id) {
+      // EXISTING USER - Just login, no creation needed
+      console.log(`✅ Existing user found - logging in: ${user.id}`);
+      isNewUser = false;
+    } else {
+      // NEW USER - Create in Hygraph
+      console.log(`📝 No existing user found - creating new user for: ${cleanNumber}`);
       isNewUser = true;
       
       try {
@@ -197,15 +203,6 @@ router.post('/verify-otp', async (req, res) => {
           message: `Failed to create user: ${hygraphError.message}`
         });
       }
-    } else {
-      if (!user.id) {
-        console.error('User found but has no ID');
-        return res.status(500).json({
-          success: false,
-          message: 'User data is invalid. Please try again.'
-        });
-      }
-      console.log(`Existing user logged in from Hygraph: ${user.id}`);
     }
 
     // Login/Sync with Fantasy backend to get fantasyUserId and tokens
