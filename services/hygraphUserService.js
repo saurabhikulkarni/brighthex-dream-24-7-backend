@@ -76,9 +76,10 @@ class HygraphUserService {
     }
   }
 
-  // Create new user
+  // Create new user and auto-publish
   async createUser(userData) {
-    const mutation = `
+    // Step 1: Create user in Draft state
+    const createMutation = `
       mutation CreateUser(
         $mobileNumber: String!
         $firstName: String
@@ -111,8 +112,27 @@ class HygraphUserService {
       }
     `;
     
+    // Step 2: Publish user mutation
+    const publishMutation = `
+      mutation PublishUser($id: ID!) {
+        publishUserDetail(where: { id: $id }, to: PUBLISHED) {
+          id
+          mobileNumber
+          firstName
+          lastName
+          username
+          modules
+          shopEnabled
+          fantasyEnabled
+          fantasyUserId
+          shopTokens
+        }
+      }
+    `;
+    
     try {
-      const data = await hygraphClient.mutate(mutation, {
+      // Create the user first
+      const createData = await hygraphClient.mutate(createMutation, {
         mobileNumber: userData.mobile.toString(),
         firstName: userData.firstName || 'User',
         lastName: userData.lastName || '',
@@ -121,7 +141,22 @@ class HygraphUserService {
         fantasyEnabled: false
       });
       
-      return data.createUserDetail;
+      const createdUser = createData.createUserDetail;
+      
+      if (!createdUser || !createdUser.id) {
+        throw new Error('User creation returned no ID');
+      }
+      
+      console.log(`📝 User created in Draft state: ${createdUser.id}, now publishing...`);
+      
+      // Immediately publish the user to make it visible to queries
+      const publishData = await hygraphClient.mutate(publishMutation, {
+        id: createdUser.id
+      });
+      
+      console.log(`✅ User published successfully: ${publishData.publishUserDetail.id}`);
+      
+      return publishData.publishUserDetail;
     } catch (error) {
       console.error('❌ HYGRAPH USER CREATION FAILED:', {
         errorMessage: error.message,
