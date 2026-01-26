@@ -206,96 +206,77 @@ router.post('/verify-otp', async (req, res) => {
     }
 
     // Login/Sync with Fantasy backend to get fantasyUserId and tokens
-    // Using /user/direct-add-user endpoint for better Shop compatibility
+    // Using internal endpoint for secure backend-to-backend communication
     let fantasyUserId = user.fantasyUserId || null;
     let fantasyAuthKey = null;
     let fantasyLoginError = null;
+    
+    // Fantasy backend URL - use env variable or default to production IP
+    const FANTASY_BACKEND_URL = process.env.FANTASY_API_URL || 'http://134.209.158.211:4000';
+    const INTERNAL_API_SECRET = process.env.INTERNAL_API_SECRET || 'shop-fantasy-internal-secret';
+    
     try {
-      if (process.env.FANTASY_API_URL) {
-        // Validate FANTASY_API_URL is not localhost in production
-        if (process.env.NODE_ENV === 'production' && process.env.FANTASY_API_URL.includes('localhost')) {
-          console.error('❌ FANTASY_API_URL is set to localhost in production! Fantasy sync will fail.');
-          fantasyLoginError = 'Fantasy backend URL misconfigured';
+      console.log(`🔄 Syncing user ${user.id} to Fantasy backend at: ${FANTASY_BACKEND_URL}/internal/create-or-get-user`);
+      
+      // Call Fantasy internal endpoint to create or get user
+      const fantasyResponse = await axios.post(
+        `${FANTASY_BACKEND_URL}/internal/create-or-get-user`,
+        {
+          mobile_number: cleanNumber,
+          hygraph_user_id: user.id,
+          name: `${user.firstName || req.body.firstName || 'User'} ${user.lastName || req.body.lastName || ''}`.trim(),
+          first_name: user.firstName || req.body.firstName || 'User',
+          last_name: user.lastName || req.body.lastName || ''
+        },
+        {
+          headers: { 
+            'Content-Type': 'application/json',
+            'X-Internal-Key': INTERNAL_API_SECRET
+          },
+          timeout: 15000
+        }
+      );
+      
+      console.log('Fantasy create-or-get-user response:', JSON.stringify(fantasyResponse.data, null, 2));
+      
+      // Extract Fantasy tokens and user_id from response
+      if (fantasyResponse.data?.success === true) {
+        const fantasyData = fantasyResponse.data.data || fantasyResponse.data;
+        
+        // Get user_id from response
+        fantasyUserId = fantasyData.userid || fantasyData.user_id || fantasyData.userId || fantasyData._id;
+        
+        // Get Fantasy JWT token
+        fantasyAuthKey = fantasyData.token || fantasyData.auth_key;
+        
+        if (fantasyUserId) {
+          // Update Hygraph user with fantasy_user_id
+          await hygraphUserService.updateUserById(user.id, { 
+            fantasy_user_id: fantasyUserId.toString()
+          });
+          console.log(`✅ Fantasy user sync completed - fantasy_user_id: ${fantasyUserId}`);
         } else {
-          console.log(`Syncing user ${user.id} to fantasy backend at: ${process.env.FANTASY_API_URL}/user/direct-add-user`);
-          
-          // Generate Shop JWT token to pass to Fantasy
-          const { SignJWT } = await getJWTTools();
-          const secret = Buffer.from(process.env.SECRET_TOKEN || 'your-secret-key-here');
-          const shopToken = await new SignJWT({
-            userId: user.id,
-            mobile: cleanNumber,
-            modules: ['shop', 'fantasy'],
-            shop_enabled: true,
-            fantasy_enabled: true
-          })
-            .setProtectedHeader({ alg: 'HS256' })
-            .setExpirationTime('30d')
-            .setIssuedAt()
-            .sign(secret);
-          
-          const fantasyResponse = await axios.post(
-            `${process.env.FANTASY_API_URL}/user/direct-add-user`,
-            {
-              mobile: cleanNumber,
-              appid: 'shop-app',
-              token: shopToken,  // Pass Shop JWT token
-              hygraph_user_id: user.id,
-              name: `${user.firstName || req.body.firstName || 'User'} ${user.lastName || req.body.lastName || ''}`.trim(),
-              username: user.username || `${user.firstName || 'User'}${user.lastName || ''}`.replace(/\s/g, '')
-            },
-            {
-              headers: { 
-                'Content-Type': 'application/json'
-              },
-              timeout: 10000
-            }
-          );
-          
-          console.log('Fantasy direct-add-user response:', JSON.stringify(fantasyResponse.data, null, 2));
-          
-          // Extract Fantasy tokens and user_id from response
-          // Response format: { success: true, message: "...", data: { token, auth_key, userid, mobile, type } }
-          if (fantasyResponse.data?.success === true && fantasyResponse.data?.data) {
-            const fantasyData = fantasyResponse.data.data;
-            
-            // Get user_id from response
-            fantasyUserId = fantasyData.userid || fantasyData.user_id || fantasyData.userId || fantasyData._id;
-            
-            // Get Fantasy JWT token - auth_key is primary
-            fantasyAuthKey = fantasyData.auth_key || fantasyData.token;
-            
-            if (fantasyUserId) {
-              // Update Hygraph user with fantasy_user_id
-              await hygraphUserService.updateUserById(user.id, { 
-                fantasy_user_id: fantasyUserId.toString()
-              });
-              console.log(`✅ Fantasy user sync completed - fantasy_user_id: ${fantasyUserId}, auth_key: ${fantasyAuthKey?.substring(0, 20)}...`);
-            } else {
-              console.warn('⚠️ Fantasy response missing userid:', fantasyResponse.data);
-              fantasyLoginError = 'Fantasy response missing userid';
-            }
-            
-            if (!fantasyAuthKey) {
-              console.warn('⚠️ Fantasy response missing auth_key/token - Fantasy app may not work');
-              fantasyLoginError = fantasyLoginError || 'Fantasy response missing auth_key';
-            }
-          } else {
-            // Handle error response from Fantasy
-            console.warn('⚠️ Fantasy direct-add-user failed:', fantasyResponse.data);
-            fantasyLoginError = fantasyResponse.data?.message || 'Fantasy user registration failed';
-          }
+          console.warn('⚠️ Fantasy response missing userid:', fantasyResponse.data);
+          fantasyLoginError = 'Fantasy response missing userid';
+        }
+        
+        if (fantasyAuthKey) {
+          console.log(`✅ Fantasy token received: ${fantasyAuthKey.substring(0, 20)}...`);
+        } else {
+          console.warn('⚠️ Fantasy response missing token - Fantasy app may not work');
+          fantasyLoginError = fantasyLoginError || 'Fantasy response missing token';
         }
       } else {
-        console.warn('⚠️ Fantasy sync skipped - FANTASY_API_URL not configured');
-        fantasyLoginError = 'FANTASY_API_URL not configured';
+        // Handle error response from Fantasy
+        console.warn('⚠️ Fantasy create-or-get-user failed:', fantasyResponse.data);
+        fantasyLoginError = fantasyResponse.data?.message || 'Fantasy user registration failed';
       }
     } catch (syncError) {
       console.error('❌ Fantasy sync failed:', {
         message: syncError.message,
         response: syncError.response?.data,
         status: syncError.response?.status,
-        url: process.env.FANTASY_API_URL
+        url: FANTASY_BACKEND_URL
       });
       fantasyLoginError = syncError.response?.data?.message || syncError.message || 'Fantasy backend unavailable';
       // Continue even if fantasy sync fails - user can still use shop
@@ -343,8 +324,10 @@ router.post('/verify-otp', async (req, res) => {
       message: 'Login successful',
       userId: user.id,
       authToken: user.authKey,
+      token: user.authKey, // Shop token (alias for authToken)
       // Fantasy token for Fantasy app authentication
-      fantasy_auth_key: fantasyAuthKey,
+      fantasy_token: fantasyAuthKey,
+      fantasy_auth_key: fantasyAuthKey, // Legacy alias
       // Fantasy sync status - helps frontend know if Fantasy features will work
       fantasy_sync_status: fantasyAuthKey ? 'success' : 'failed',
       fantasy_sync_error: fantasyLoginError,
