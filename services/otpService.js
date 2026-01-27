@@ -51,21 +51,40 @@ class OtpService {
   async verifyOtp(mobileNumber, otp, sessionId = null) {
     // Find OTP entry
     let otpEntry = null;
+    let foundSessionId = sessionId;
+
+    console.log('🔍 verifyOtp called with:', {
+      mobileNumber,
+      otp: '***',
+      sessionId: sessionId ? 'provided' : 'NOT provided',
+      storageSize: otpStorage.size
+    });
 
     if (sessionId) {
       otpEntry = otpStorage.get(sessionId);
-    } else {
-      // Find by mobile number (less secure, but fallback)
+      console.log('📦 Looking up by sessionId:', sessionId.substring(0, 10) + '...', 'Found:', !!otpEntry);
+    }
+
+    // If sessionId not provided or not found, fallback to mobile number lookup
+    if (!otpEntry) {
+      console.log('🔄 Fallback: searching by mobile number...');
       for (const [sid, entry] of otpStorage.entries()) {
         if (entry.mobileNumber === mobileNumber) {
           otpEntry = entry;
-          sessionId = sid;
+          foundSessionId = sid;
+          console.log('✅ Found OTP entry by mobile number');
           break;
         }
       }
     }
 
     if (!otpEntry) {
+      console.error('❌ OTP session not found:', {
+        mobileNumber,
+        sessionIdProvided: !!sessionId,
+        storageSize: otpStorage.size,
+        storageKeys: Array.from(otpStorage.keys()).slice(0, 3).map(k => k.substring(0, 10) + '...')
+      });
       return {
         verified: false,
         message: 'OTP session not found or expired'
@@ -75,7 +94,8 @@ class OtpService {
     // Check expiry
     const age = Date.now() - otpEntry.timestamp;
     if (age > OTP_EXPIRY_MS) {
-      otpStorage.delete(sessionId);
+      console.warn('⏱️  OTP expired:', { age: age / 1000, expiryMs: OTP_EXPIRY_MS / 1000 });
+      otpStorage.delete(foundSessionId);
       return {
         verified: false,
         message: 'OTP has expired. Please request a new one.'
@@ -84,7 +104,8 @@ class OtpService {
 
     // Check attempts
     if (otpEntry.attempts >= otpEntry.maxAttempts) {
-      otpStorage.delete(sessionId);
+      console.warn('🚫 Too many attempts:', otpEntry.attempts);
+      otpStorage.delete(foundSessionId);
       return {
         verified: false,
         message: 'Too many verification attempts. Please request a new OTP.'
@@ -94,6 +115,10 @@ class OtpService {
     // Verify OTP
     if (otpEntry.mobileNumber !== mobileNumber) {
       otpEntry.attempts++;
+      console.warn('❌ Mobile number mismatch:', {
+        stored: otpEntry.mobileNumber,
+        provided: mobileNumber
+      });
       return {
         verified: false,
         message: 'Mobile number mismatch'
@@ -102,6 +127,10 @@ class OtpService {
 
     if (otpEntry.otp !== otp) {
       otpEntry.attempts++;
+      console.warn('❌ Invalid OTP:', {
+        attempts: otpEntry.attempts,
+        maxAttempts: otpEntry.maxAttempts
+      });
       return {
         verified: false,
         message: 'Invalid OTP'
@@ -109,9 +138,11 @@ class OtpService {
     }
 
     // OTP verified successfully
+    console.log('✅ OTP verified successfully - sessionId:', foundSessionId.substring(0, 10) + '...');
     return {
       verified: true,
-      message: 'OTP verified successfully'
+      message: 'OTP verified successfully',
+      sessionId: foundSessionId
     };
   }
 
