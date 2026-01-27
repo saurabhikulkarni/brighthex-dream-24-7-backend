@@ -135,14 +135,6 @@ router.post('/verify-otp', async (req, res) => {
   try {
     const { mobileNumber, otp, sessionId, deviceId } = req.body;
 
-    // Debug logging
-    console.log('🔐 Verify OTP Request:', {
-      mobileNumber,
-      otp: '***',
-      sessionId: sessionId ? sessionId.substring(0, 10) + '...' : 'NOT PROVIDED',
-      deviceId
-    });
-
     // Validation
     if (!mobileNumber || !otp) {
       return res.status(400).json({
@@ -151,18 +143,10 @@ router.post('/verify-otp', async (req, res) => {
       });
     }
 
-    const cleanNumber = mobileNumber.replace(/\D/g, '').trim();
-    
-    console.log('📱 Cleaned mobile number:', cleanNumber, 'Length:', cleanNumber.length);
+    const cleanNumber = mobileNumber.replace(/\D/g, '');
     
     // Verify OTP
-    console.log('🔍 Verifying OTP - sessionId provided:', !!sessionId);
     const verificationResult = await otpService.verifyOtp(cleanNumber, otp, sessionId);
-    
-    console.log('✅ OTP Verification Result:', {
-      verified: verificationResult.verified,
-      message: verificationResult.message
-    });
 
     if (!verificationResult.verified) {
       return res.status(400).json({
@@ -330,13 +314,8 @@ router.post('/verify-otp', async (req, res) => {
     console.log(`✅ User login successful - hygraph_user_id: ${user.id}, shopTokens: ${shopTokens}`);
 
     // Delete OTP from storage (one-time use)
-    // Use sessionId from request or from verification result
-    const finalSessionId = verificationResult.sessionId || sessionId;
-    if (finalSessionId) {
-      console.log('🗑️  Deleting OTP session:', finalSessionId.substring(0, 10) + '...');
-      await otpService.deleteOtp(finalSessionId);
-    } else {
-      console.warn('⚠️  No sessionId available to delete OTP');
+    if (sessionId) {
+      await otpService.deleteOtp(sessionId);
     }
 
     res.json({

@@ -28,13 +28,16 @@ class Msg91Service {
         throw new Error('MSG91_TEMPLATE_ID not configured');
       }
 
-      // MSG91 API endpoint for sending OTP (using v4 which is current)
+      // MSG91 API endpoint for sending OTP
       const url = `${this.baseUrl}`;
 
       const payload = {
         template_id: this.templateId,
         mobile: `91${mobileNumber}`, // Add country code
-        otp: otp.toString()
+        otp: otp.toString(),
+        sender: this.senderId,
+        otp_expiry: 8600,
+        realTimeResponse: 1
       };
 
       console.log('MSG91 Request URL:', url);
@@ -52,23 +55,20 @@ class Msg91Service {
       console.log('MSG91 Response:', JSON.stringify(response.data, null, 2));
 
       // MSG91 response format - check for success indicators
-      if (response.data.type === 'success' || response.status === 200) {
+      if (response.data.type === 'success' ||
+        response.data.message === 'OTP sent successfully' ||
+        response.data.message?.toLowerCase().includes('success') ||
+        response.status === 200) {
         return {
           success: true,
           message: 'OTP sent successfully',
           requestId: response.data.request_id
         };
-      } else if (response.data.message) {
-        console.error('MSG91 returned non-success response:', response.data);
-        return {
-          success: false,
-          message: response.data.message
-        };
       } else {
         console.error('MSG91 returned non-success response:', response.data);
         return {
           success: false,
-          message: 'Failed to send OTP. Please try again.'
+          message: response.data.message || 'Failed to send OTP'
         };
       }
     } catch (error) {
