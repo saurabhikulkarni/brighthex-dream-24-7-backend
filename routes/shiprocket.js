@@ -1,6 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const shiprocketService = require('../services/shiprocketService');
+const orderService = require('../services/orderService');
+const trackingService = require('../services/trackingService');
 
 /**
  * GET /api/shiprocket/track/:orderId
@@ -260,14 +262,52 @@ router.post('/webhook', async (req, res) => {
     if (etd) console.log(`   ETA: ${etd}`);
     if (delivered_date) console.log(`   Delivered: ${delivered_date}`);
     
-    // TODO: Update order status in your database (Hygraph)
-    // Example: await orderService.updateOrderStatus(channel_order_id, statusName);
+    // ✅ Step 1: Map Shiprocket status to our order status
+    let mappedStatus = 'PENDING';
+    if (current_status_id === 7 || statusName === 'Delivered') {
+      mappedStatus = 'DELIVERED';
+    } else if (current_status_id === 8 || statusName === 'Cancelled') {
+      mappedStatus = 'CANCELLED';
+    } else if ([6, 17, 18, 42].includes(current_status_id)) {
+      mappedStatus = 'SHIPPED';
+    } else if ([1, 2, 3, 4, 5].includes(current_status_id)) {
+      mappedStatus = 'PROCESSING';
+    }
+
+    // ✅ Step 2: Update order status in Hygraph
+    try {
+      if (channel_order_id) {
+        await orderService.updateOrderStatus(channel_order_id, mappedStatus, {
+          trackingNumber: awb,
+          courierName: courier_name,
+          shiprocketOrderId: order_id
+        });
+        console.log(`✅ Order ${channel_order_id} updated to ${mappedStatus}`);
+      }
+    } catch (err) {
+      console.error('⚠️ Failed to update order status:', err.message);
+    }
+    
+    // ✅ Step 3: Store tracking event in Hygraph
+    try {
+      if (channel_order_id) {
+        await trackingService.addTrackingEvent(channel_order_id, {
+          status: statusName,
+          location: webhookData.current_hub_location || '',
+          remarks: webhookData.remarks || '',
+          timestamp: webhookData.timestamp || new Date().toISOString(),
+          awb: awb,
+          courierName: courier_name,
+          estimatedDeliveryDate: etd || delivered_date
+        });
+        console.log(`✅ Tracking event recorded for order ${channel_order_id}`);
+      }
+    } catch (err) {
+      console.error('⚠️ Failed to store tracking event:', err.message);
+    }
     
     // TODO: Send push notification to user
-    // Example: await notificationService.sendOrderUpdate(userId, statusName, order_id);
-    
-    // TODO: Store tracking history
-    // Example: await orderService.addTrackingEvent(order_id, webhookData);
+    // Example: await notificationService.sendOrderUpdate(userId, statusName, channel_order_id);
     
     // Respond to Shiprocket (IMPORTANT: Must return 200 quickly)
     res.status(200).json({

@@ -116,11 +116,17 @@ const authRoutes = require('./routes/auth');
 const paymentRoutes = require('./routes/payments');
 const shiprocketRoutes = require('./routes/shiprocket');
 const walletRoutes = require('./routes/wallet');
+const orderRoutes = require('./routes/orders');
+const addressRoutes = require('./routes/addresses');
+const trackingRoutes = require('./routes/tracking');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/payments', paymentRoutes);
 app.use('/api/shiprocket', shiprocketRoutes);
 app.use('/api/wallet', walletRoutes);
+app.use('/api/orders', orderRoutes);
+app.use('/api/addresses', addressRoutes);
+app.use('/api/tracking', trackingRoutes);
 
 // 404 handler
 app.use((req, res) => {
